@@ -21,7 +21,9 @@ public sealed class PersonalDistillationService
         ".csv",
         ".yaml",
         ".yml",
-        ".docx"
+        ".docx",
+        ".html",
+        ".htm"
     ];
 
     private static readonly string[] PreferredNameTokens =
@@ -40,6 +42,23 @@ public sealed class PersonalDistillationService
         "cv",
         "sop",
         "portfolio"
+    ];
+
+    private static readonly string[] FilenameCueExtensions =
+    [
+        ".docx",
+        ".doc",
+        ".pdf",
+        ".pptx",
+        ".ppt",
+        ".xlsx",
+        ".xls",
+        ".txt",
+        ".md",
+        ".html",
+        ".htm",
+        ".json",
+        ".csv"
     ];
 
     public bool LooksLikePersonalDistillationRequest(string input)
@@ -134,6 +153,17 @@ public sealed class PersonalDistillationService
                 .Take(8)
                 .ToList();
 
+            var representativeFileNames = files
+                .Where(file => FilenameCueExtensions.Contains(Path.GetExtension(file), StringComparer.OrdinalIgnoreCase))
+                .Where(file => !IsIgnoredPath(file))
+                .OrderByDescending(file => ScoreFile(file, resolvedPath))
+                .ThenByDescending(GetLastWriteTicks)
+                .Take(8)
+                .Select(file => Path.GetFileName(file))
+                .Where(name => !string.IsNullOrWhiteSpace(name))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
             var documents = new List<PersonalDocumentSnippet>();
             foreach (var file in readableFiles)
             {
@@ -166,15 +196,22 @@ public sealed class PersonalDistillationService
                 sourceLabel,
                 topEntries,
                 extensionSummary,
+                representativeFileNames,
                 documents));
 
             analysisSections.Add($"来源：{resolvedPath}");
+            analysisSections.Add(IsLikelyWeChatSource(resolvedPath, topEntries)
+                ? "来源判断：这看起来像微信聊天资料源，结构和文件名比正文更重要。"
+                : "来源判断：这更像普通资料目录。");
             analysisSections.Add(topEntries.Count == 0
                 ? "顶层结构：无明显顶层条目。"
                 : $"顶层结构：{string.Join("、", topEntries)}");
             analysisSections.Add(extensionSummary.Count == 0
                 ? "文件类型分布：无法统计。"
                 : $"文件类型分布：{string.Join("；", extensionSummary)}");
+            analysisSections.Add(representativeFileNames.Count == 0
+                ? "代表性文件名线索：暂无。"
+                : $"代表性文件名线索：{string.Join("；", representativeFileNames)}");
 
             if (documents.Count == 0)
             {
@@ -201,7 +238,9 @@ public sealed class PersonalDistillationService
     {
         var sourceLabels = scan.Sources.Select(source => source.SourceLabel).Distinct().Take(8).ToList();
         var normalizedTokens = sourceLabels
-            .SelectMany(label => label.Split([' ', '-', '_', '(', ')', '（', '）'], StringSplitOptions.RemoveEmptyEntries))
+            .Concat(scan.Sources.SelectMany(source => source.TopEntries))
+            .Concat(scan.Sources.SelectMany(source => source.RepresentativeFileNames))
+            .SelectMany(label => label.Split([' ', '-', '_', '(', ')', '（', '）', '.', ':'], StringSplitOptions.RemoveEmptyEntries))
             .Select(token => token.Trim())
             .Where(token => !string.IsNullOrWhiteSpace(token))
             .ToList();
@@ -210,6 +249,16 @@ public sealed class PersonalDistillationService
         if (ContainsAny(normalizedTokens, "wechat", "微信"))
         {
             knownLanes.Add("聊天里推进的协作与任务承诺");
+        }
+
+        if (ContainsAny(normalizedTokens, "pitch", "proposal", "patent", "商业", "样品", "专利"))
+        {
+            knownLanes.Add("商业材料、专利与样品推进");
+        }
+
+        if (ContainsAny(normalizedTokens, "cv", "resume", "sop", "portfolio", "申请", "文书"))
+        {
+            knownLanes.Add("申请材料、经历叙事与个人归档");
         }
 
         if (ContainsAny(normalizedTokens, "desktop", "Desktop"))
@@ -391,7 +440,8 @@ public sealed class PersonalDistillationService
                || path.Contains($"{Path.DirectorySeparatorChar}node_modules{Path.DirectorySeparatorChar}", StringComparison.OrdinalIgnoreCase)
                || path.Contains($"{Path.DirectorySeparatorChar}.venv{Path.DirectorySeparatorChar}", StringComparison.OrdinalIgnoreCase)
                || path.Contains($"{Path.DirectorySeparatorChar}venv{Path.DirectorySeparatorChar}", StringComparison.OrdinalIgnoreCase)
-               || path.Contains($"{Path.DirectorySeparatorChar}cache{Path.DirectorySeparatorChar}", StringComparison.OrdinalIgnoreCase);
+               || path.Contains($"{Path.DirectorySeparatorChar}cache{Path.DirectorySeparatorChar}", StringComparison.OrdinalIgnoreCase)
+               || path.Contains($"{Path.DirectorySeparatorChar}temp{Path.DirectorySeparatorChar}", StringComparison.OrdinalIgnoreCase);
     }
 
     private static int ScoreFile(string filePath, string rootPath)
@@ -422,10 +472,14 @@ public sealed class PersonalDistillationService
             ".txt" => 18,
             ".json" => 14,
             ".csv" => 10,
+            ".html" => 12,
+            ".htm" => 12,
             _ => 4
         };
 
         score -= depth * 2;
+        score += ScoreRelativePath(relativePath);
+        score += ScoreRecency(filePath);
         return score;
     }
 
@@ -436,6 +490,8 @@ public sealed class PersonalDistillationService
             return Path.GetExtension(filePath).ToLowerInvariant() switch
             {
                 ".docx" => ReadDocx(filePath),
+                ".html" => ReadHtml(filePath),
+                ".htm" => ReadHtml(filePath),
                 _ => File.ReadAllText(filePath)
             };
         }
@@ -464,6 +520,16 @@ public sealed class PersonalDistillationService
         return string.Join(" ", texts);
     }
 
+    private static string ReadHtml(string filePath)
+    {
+        var html = File.ReadAllText(filePath);
+        html = Regex.Replace(html, "<script[\\s\\S]*?</script>", " ", RegexOptions.IgnoreCase);
+        html = Regex.Replace(html, "<style[\\s\\S]*?</style>", " ", RegexOptions.IgnoreCase);
+        html = Regex.Replace(html, "<[^>]+>", " ");
+        html = System.Net.WebUtility.HtmlDecode(html);
+        return html;
+    }
+
     private static string BuildExcerpt(string text, int maxLength)
     {
         if (string.IsNullOrWhiteSpace(text))
@@ -480,6 +546,76 @@ public sealed class PersonalDistillationService
         return $"{cleaned[..maxLength].Trim()}...";
     }
 
+    private static int ScoreRelativePath(string relativePath)
+    {
+        var score = 0;
+
+        if (relativePath.Contains("msg\\file", StringComparison.OrdinalIgnoreCase)
+            || relativePath.Contains("msg/file", StringComparison.OrdinalIgnoreCase))
+        {
+            score += 16;
+        }
+
+        if (relativePath.Contains("wechat", StringComparison.OrdinalIgnoreCase))
+        {
+            score += 10;
+        }
+
+        if (relativePath.Contains("desktop", StringComparison.OrdinalIgnoreCase))
+        {
+            score += 8;
+        }
+
+        return score;
+    }
+
+    private static int ScoreRecency(string filePath)
+    {
+        try
+        {
+            var age = DateTimeOffset.Now - File.GetLastWriteTimeUtc(filePath);
+            if (age.TotalDays <= 30)
+            {
+                return 12;
+            }
+
+            if (age.TotalDays <= 180)
+            {
+                return 8;
+            }
+
+            if (age.TotalDays <= 365)
+            {
+                return 4;
+            }
+        }
+        catch
+        {
+        }
+
+        return 0;
+    }
+
+    private static long GetLastWriteTicks(string filePath)
+    {
+        try
+        {
+            return File.GetLastWriteTimeUtc(filePath).Ticks;
+        }
+        catch
+        {
+            return 0;
+        }
+    }
+
+    private static bool IsLikelyWeChatSource(string resolvedPath, IReadOnlyList<string> topEntries)
+    {
+        return resolvedPath.Contains("wechat", StringComparison.OrdinalIgnoreCase)
+               || resolvedPath.Contains("wxid_", StringComparison.OrdinalIgnoreCase)
+               || topEntries.Any(entry => entry.Equals("msg", StringComparison.OrdinalIgnoreCase))
+               || topEntries.Any(entry => entry.Equals("db_storage", StringComparison.OrdinalIgnoreCase));
+    }
+
     public sealed record PersonalDocumentSnippet(
         string RelativePath,
         string FileName,
@@ -490,6 +626,7 @@ public sealed class PersonalDistillationService
         string SourceLabel,
         IReadOnlyList<string> TopEntries,
         IReadOnlyList<string> ExtensionSummary,
+        IReadOnlyList<string> RepresentativeFileNames,
         IReadOnlyList<PersonalDocumentSnippet> Documents);
 
     public sealed record PersonalScanResult(
