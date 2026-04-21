@@ -4,15 +4,15 @@
   <img src="./docs/assets/github-cover.svg" alt="Desktop Companion cover" width="100%" />
 </p>
 
-Desktop Companion is a Windows-first desktop pet that acts like a conversational work companion.
+Desktop Companion is a Windows-first desktop RA that can understand and track multiple active workstreams through a desktop-pet interface.
 
 The current canonical runtime is a WPF host under `apps/desktop-shell-wpf`. Earlier prototypes are still kept in the repo as references, but they are not the main product path anymore.
 
 ## What This Project Is
 
 - A desktop pet that stays on the screen instead of behaving like a normal app window
-- A conversation-first companion that can help untangle mixed work items
-- A lightweight task and project-memory layer, not a full project-management suite
+- A conversation-first RA that can understand multiple task mainlines at the same time
+- A lightweight multi-thread work-memory layer, not a full project-management suite
 - A local-first assistant that can read project folders only after explicit permission
 - A bridge that can hand work to VS Code / Codex and report back in the pet UI
 
@@ -20,13 +20,14 @@ The current canonical runtime is a WPF host under `apps/desktop-shell-wpf`. Earl
 
 The project is intentionally scoped around one core idea:
 
-> a desktop-resident companion that helps the user restart action
+> a desktop-resident RA that can hold multiple work threads in mind and help the user move across them
 
 That means:
 
 - conversation comes before task capture
-- task memory stays lightweight
-- project cognition is background support, not a dashboard product
+- the system should understand several concurrent mainlines instead of collapsing everything into one to-do list
+- work-memory stays lightweight, but it must stay aware of project lines, blockers, and next steps across threads
+- project cognition is core capability, not side decoration
 - the pet shell matters as much as the reasoning layer
 
 ## What The Final Product Should Feel Like
@@ -37,13 +38,14 @@ The intended end state is:
 
 - a desktop-resident character that feels present even when no large window is open
 - a conversation-first interface where the user clicks the pet, says one thing, and gets a useful reply immediately
-- a companion that can catch emotion, untangle mixed work items, and reduce them into the next real step
+- an RA that can understand multiple active task mainlines, recognize which items belong to which project thread, and preserve that structure over time
+- a reasoning layer that can catch emotion, untangle mixed work items, and reduce each thread into the next real step
 - a lightweight memory layer that remembers current threads, blockers, next actions, and project lines without turning into heavy project-management UI
 - an optional execution bridge that can read approved project folders, open VS Code, dispatch work to Codex, and report results back through the pet
 
 In short, the final product should feel like:
 
-> a desktop companion that helps the user restart action, not another productivity dashboard
+> a desktop RA that can understand multiple concurrent workstreams, not another productivity dashboard
 
 ## Where The Project Is Now
 
@@ -54,7 +56,7 @@ Current state:
 - the canonical Windows runtime exists and builds cleanly as a WPF host
 - the desktop pet shell, bubble interaction, and character asset are already in place
 - OpenAI and Ollama provider paths are wired in
-- lightweight task memory, project-memory, permission gating, and workspace ingestion already exist
+- mixed-list digestion, project-memory, permission gating, and workspace ingestion already exist
 - VS Code / Codex bridge exists and can dispatch structured work
 - the repo has now been cleaned up for open-source publishing
 
@@ -65,10 +67,11 @@ What is still unfinished:
 - legacy prototypes are still present in the repo as references
 - there is not yet a stable packaged release flow for end users
 - the product still needs a cleaner “first-run to daily-use” path
+- the multi-mainline RA model still needs to be made more explicit in the UI and docs
 
 So the project is currently best described as:
 
-> a working WPF-first prototype with real integrations, moving toward a cleaner open-source alpha
+> a working WPF-first prototype with real integrations, moving toward a clearer multi-mainline desktop RA alpha
 
 ## Current Main Features
 
@@ -76,8 +79,8 @@ So the project is currently best described as:
 - single-click open/close interaction with bubble-based UI
 - OpenAI-backed conversation support
 - Ollama-backed local conversation support
-- lightweight task memory and project-memory models
-- project-dump digestion for mixed lists of work items
+- project-memory and multi-thread work models
+- project-dump digestion for mixed lists of work items across multiple mainlines
 - explicit permission flow before scanning local project folders
 - workspace ingestion for `README`, summary docs, notes, code, and selected text assets
 - VS Code / Codex bridge for opening a workspace and dispatching structured tasks
