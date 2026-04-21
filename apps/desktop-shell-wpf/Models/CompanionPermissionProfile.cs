@@ -10,6 +10,8 @@ public sealed class CompanionPermissionProfile
 
     public bool CanBuildProjectMemoryFromDocs { get; set; }
 
+    public bool CanBuildPersonalProfileFromPrivateSources { get; set; }
+
     public string PresetLabel { get; set; } = string.Empty;
 
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.Now;

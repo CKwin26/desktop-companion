@@ -155,6 +155,49 @@ public sealed class OllamaChatService
         return _qualityGuard.Normalize(digest);
     }
 
+    public async Task<DistilledUserProfile?> AnalyzePersonalProfileAsync(
+        string analysisInput,
+        CancellationToken cancellationToken = default)
+    {
+        var request = new OllamaChatRequest
+        {
+            Model = ModelName,
+            Stream = false,
+            Think = false,
+            Messages =
+            [
+                new OllamaMessage
+                {
+                    Role = "system",
+                    Content = TuanziCognitionProfile.BuildPersonalDistillationSystemPrompt()
+                },
+                new OllamaMessage
+                {
+                    Role = "user",
+                    Content = analysisInput
+                }
+            ],
+            Options = new OllamaOptions
+            {
+                Temperature = 0.2,
+                NumPredict = 520
+            }
+        };
+
+        using var response = await _httpClient.PostAsJsonAsync("api/chat", request, cancellationToken);
+        response.EnsureSuccessStatusCode();
+
+        var payload = await response.Content.ReadFromJsonAsync<OllamaChatResponse>(cancellationToken: cancellationToken);
+        var rawText = payload?.Message?.Content?.Trim();
+
+        if (!PersonalDistillationService.TryDeserializeProfile(rawText ?? string.Empty, out var profile))
+        {
+            return null;
+        }
+
+        return profile;
+    }
+
     private static List<OllamaMessage> BuildMessages(
         IReadOnlyList<ConversationMessage> conversationHistory,
         IReadOnlyList<CompanionTask> orderedTasks,

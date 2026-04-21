@@ -33,11 +33,13 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     private readonly LocalProjectStore _projectStore;
     private readonly LocalWorkspaceSourceStore _workspaceSourceStore;
     private readonly LocalPermissionStore _permissionStore;
+    private readonly LocalUserProfileStore _userProfileStore;
     private readonly LocalConversationStore _conversationStore;
     private readonly SimpleTaskIntentParser _intentParser;
     private readonly CompanionPersonaEngine _personaEngine;
     private readonly ProjectCognitionService _projectCognitionService;
     private readonly WorkspaceIngestionService _workspaceIngestionService;
+    private readonly PersonalDistillationService _personalDistillationService;
     private readonly VsCodeBridgeService _vsCodeBridgeService;
     private readonly OpenAiChatService _openAiChatService;
     private readonly OllamaChatService _ollamaChatService;
@@ -45,6 +47,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     private readonly TimeSpan _reviewCadence = TimeSpan.FromMinutes(25);
     private readonly TimeSpan _focusSprintDuration = TimeSpan.FromMinutes(25);
     private readonly CompanionPermissionProfile _permissionProfile;
+    private DistilledUserProfile? _distilledUserProfile;
 
     private DateTimeOffset _nextReviewAt;
     private DateTimeOffset? _focusSprintEndsAt;
@@ -74,11 +77,13 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             new LocalProjectStore(),
             new LocalWorkspaceSourceStore(),
             new LocalPermissionStore(),
+            new LocalUserProfileStore(),
             new LocalConversationStore(),
             new SimpleTaskIntentParser(),
             new CompanionPersonaEngine(),
             new ProjectCognitionService(),
             new WorkspaceIngestionService(),
+            new PersonalDistillationService(),
             new VsCodeBridgeService(),
             new OpenAiChatService(),
             new OllamaChatService())
@@ -90,11 +95,13 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         LocalProjectStore projectStore,
         LocalWorkspaceSourceStore workspaceSourceStore,
         LocalPermissionStore permissionStore,
+        LocalUserProfileStore userProfileStore,
         LocalConversationStore conversationStore,
         SimpleTaskIntentParser intentParser,
         CompanionPersonaEngine personaEngine,
         ProjectCognitionService projectCognitionService,
         WorkspaceIngestionService workspaceIngestionService,
+        PersonalDistillationService personalDistillationService,
         VsCodeBridgeService vsCodeBridgeService,
         OpenAiChatService openAiChatService,
         OllamaChatService ollamaChatService)
@@ -103,15 +110,18 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         _projectStore = projectStore;
         _workspaceSourceStore = workspaceSourceStore;
         _permissionStore = permissionStore;
+        _userProfileStore = userProfileStore;
         _conversationStore = conversationStore;
         _intentParser = intentParser;
         _personaEngine = personaEngine;
         _projectCognitionService = projectCognitionService;
         _workspaceIngestionService = workspaceIngestionService;
+        _personalDistillationService = personalDistillationService;
         _vsCodeBridgeService = vsCodeBridgeService;
         _openAiChatService = openAiChatService;
         _ollamaChatService = ollamaChatService;
         _permissionProfile = _permissionStore.LoadProfile();
+        _distilledUserProfile = _userProfileStore.LoadProfile();
 
         ConversationMessages = [];
         RecentMemoryCards = [];
@@ -351,6 +361,67 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         {
             AddConversation(ConversationRole.Companion, permissionReply);
             RefreshDashboard(permissionReply);
+            return;
+        }
+
+        if (_personalDistillationService.LooksLikePersonalDistillationRequest(input))
+        {
+            if (!_permissionProfile.CanBuildPersonalProfileFromPrivateSources)
+            {
+                const string noPermissionReply = "这一步我先不碰你的私人资料。你要先明确给我“可读私人资料并沉淀安全画像”这档权限，我才会只提炼安全画像，不保存原始聊天内容。";
+                AddConversation(ConversationRole.Companion, noPermissionReply);
+                RefreshDashboard(noPermissionReply);
+                return;
+            }
+
+            var sourcePaths = _personalDistillationService.ExtractSourcePaths(input);
+            if (sourcePaths.Count == 0)
+            {
+                const string missingSourceReply = "你要蒸馏自己时，把资料路径也一起发给我，比如 G:\\wechat 或桌面上的某个目录。";
+                AddConversation(ConversationRole.Companion, missingSourceReply);
+                RefreshDashboard(missingSourceReply);
+                return;
+            }
+
+            IsAwaitingReply = true;
+            AiStatusLabel = $"{provider.Label} 蒸馏中";
+            WhisperLine = "团子在从你授权的私人资料里提炼隐私安全画像，只会保留长期风格和主线结构。";
+            RefreshDashboard("团子在从你授权的私人资料里提炼隐私安全画像，只会保留长期风格和主线结构。");
+
+            try
+            {
+                var scan = _personalDistillationService.ScanSources(sourcePaths);
+                if (!scan.IsSuccess)
+                {
+                    AiStatusLabel = provider.Label;
+                    AddConversation(ConversationRole.Companion, scan.Message);
+                    RefreshDashboard(scan.Message);
+                    return;
+                }
+
+                var profile = await provider.AnalyzePersonalProfileAsync(scan.AnalysisInput)
+                              ?? _personalDistillationService.CreateFallbackProfile(scan);
+
+                _distilledUserProfile = profile;
+                _userProfileStore.SaveProfile(profile);
+
+                var profileReply = _personalDistillationService.BuildCompanionReply(profile, scan);
+                AiStatusLabel = provider.Label;
+                AddConversation(ConversationRole.Companion, profileReply);
+                RefreshDashboard(profileReply);
+            }
+            catch
+            {
+                const string failureReply = "这轮私人资料蒸馏没稳稳跑完。路径我看到了，但我宁可先停住，也不乱存你的原始信息。你可以先给我文本导出、总结文档，或者缩小到一两个目录重试。";
+                AiStatusLabel = $"{provider.Label} 暂时没接住";
+                AddConversation(ConversationRole.Companion, failureReply);
+                RefreshDashboard(failureReply);
+            }
+            finally
+            {
+                IsAwaitingReply = false;
+            }
+
             return;
         }
 
@@ -641,6 +712,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         _permissionProfile.CanReadSelectedWorkspace = false;
         _permissionProfile.CanRememberWorkspaceSources = false;
         _permissionProfile.CanBuildProjectMemoryFromDocs = false;
+        _permissionProfile.CanBuildPersonalProfileFromPrivateSources = false;
         _permissionProfile.PresetLabel = string.Empty;
         PersistPermissionProfile();
 
@@ -677,6 +749,11 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         if (!_permissionProfile.CanReadSelectedWorkspace)
         {
             return "当前权限：只聊天，不读本地文件。";
+        }
+
+        if (_permissionProfile.CanBuildPersonalProfileFromPrivateSources)
+        {
+            return $"当前权限：可读指定目录、记住路径、梳理项目线，并蒸馏隐私安全用户画像。已记住 {_workspaceSources.Count} 个授权目录。";
         }
 
         if (_permissionProfile.CanBuildProjectMemoryFromDocs)
@@ -746,7 +823,8 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
                 AiProviderKind.Ollama,
                 ollamaAvailability.StatusLabel,
                 _ollamaChatService.GenerateReplyAsync,
-                _ollamaChatService.AnalyzeProjectDumpAsync);
+                _ollamaChatService.AnalyzeProjectDumpAsync,
+                _ollamaChatService.AnalyzePersonalProfileAsync);
         }
 
         if (preferredProvider == "openai" && openAiAvailability.IsAvailable)
@@ -755,7 +833,8 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
                 AiProviderKind.OpenAi,
                 openAiAvailability.StatusLabel,
                 _openAiChatService.GenerateReplyAsync,
-                _openAiChatService.AnalyzeProjectDumpAsync);
+                _openAiChatService.AnalyzeProjectDumpAsync,
+                _openAiChatService.AnalyzePersonalProfileAsync);
         }
 
         if (openAiAvailability.IsAvailable)
@@ -764,7 +843,8 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
                 AiProviderKind.OpenAi,
                 openAiAvailability.StatusLabel,
                 _openAiChatService.GenerateReplyAsync,
-                _openAiChatService.AnalyzeProjectDumpAsync);
+                _openAiChatService.AnalyzeProjectDumpAsync,
+                _openAiChatService.AnalyzePersonalProfileAsync);
         }
 
         if (ollamaAvailability.IsAvailable)
@@ -773,14 +853,16 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
                 AiProviderKind.Ollama,
                 ollamaAvailability.StatusLabel,
                 _ollamaChatService.GenerateReplyAsync,
-                _ollamaChatService.AnalyzeProjectDumpAsync);
+                _ollamaChatService.AnalyzeProjectDumpAsync,
+                _ollamaChatService.AnalyzePersonalProfileAsync);
         }
 
         return new ActiveAiProvider(
             AiProviderKind.None,
             "AI 未连接",
             (_, _, _, _, _, _, _, _) => Task.FromResult<string?>(null),
-            (_, _, _) => Task.FromResult<ProjectCognitionDigest?>(null));
+            (_, _, _) => Task.FromResult<ProjectCognitionDigest?>(null),
+            (_, _) => Task.FromResult<DistilledUserProfile?>(null));
     }
 
     private void HandleSupervisionTick()
@@ -1071,7 +1153,18 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
                 "只聊天，不读本地文件",
                 "可读我指定的项目目录",
                 "可读目录并记住授权路径",
-                "可读目录、记住路径并梳理项目线"
+                "可读目录、记住路径并梳理项目线",
+                "可读私人资料并沉淀安全画像"
+            ];
+        }
+
+        if (_distilledUserProfile is null && _permissionProfile.CanBuildPersonalProfileFromPrivateSources)
+        {
+            return
+            [
+                "蒸馏一下我",
+                "我想让你更了解我",
+                "G:\\wechat 和桌面这些资料可以读"
             ];
         }
 
@@ -1279,6 +1372,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             _permissionProfile.CanReadSelectedWorkspace = false;
             _permissionProfile.CanRememberWorkspaceSources = false;
             _permissionProfile.CanBuildProjectMemoryFromDocs = false;
+            _permissionProfile.CanBuildPersonalProfileFromPrivateSources = false;
             _permissionProfile.PresetLabel = "只聊天";
             PersistPermissionProfile();
             reply = "好，我先只保留聊天权限，不读你电脑里的文档。以后你想开放目录读取，再直接跟我说。";
@@ -1292,6 +1386,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             _permissionProfile.CanReadSelectedWorkspace = true;
             _permissionProfile.CanRememberWorkspaceSources = false;
             _permissionProfile.CanBuildProjectMemoryFromDocs = false;
+            _permissionProfile.CanBuildPersonalProfileFromPrivateSources = false;
             _permissionProfile.PresetLabel = "只读指定目录";
             PersistPermissionProfile();
             reply = "好，我可以读你临时指定的项目目录，但不会记住路径，也不会默认把项目线长期存下来。现在你可以把文件夹路径发给我。";
@@ -1305,6 +1400,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             _permissionProfile.CanReadSelectedWorkspace = true;
             _permissionProfile.CanRememberWorkspaceSources = true;
             _permissionProfile.CanBuildProjectMemoryFromDocs = false;
+            _permissionProfile.CanBuildPersonalProfileFromPrivateSources = false;
             _permissionProfile.PresetLabel = "读目录并记住路径";
             PersistPermissionProfile();
             reply = "好，我可以读你指定的目录，也可以记住你授权过的路径，但我暂时不把文档内容自动沉淀成长期项目记忆。现在把项目目录发给我就行。";
@@ -1318,9 +1414,24 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             _permissionProfile.CanReadSelectedWorkspace = true;
             _permissionProfile.CanRememberWorkspaceSources = true;
             _permissionProfile.CanBuildProjectMemoryFromDocs = true;
+            _permissionProfile.CanBuildPersonalProfileFromPrivateSources = false;
             _permissionProfile.PresetLabel = "读目录并梳理项目线";
             PersistPermissionProfile();
             reply = "好，这套权限下我可以读你指定的目录，记住你授权过的路径，并把文档内容整理成项目线和下一步。现在把项目文件夹路径发给我吧。";
+            return true;
+        }
+
+        if (input.Contains("私人资料", StringComparison.OrdinalIgnoreCase)
+            || input.Contains("安全画像", StringComparison.OrdinalIgnoreCase))
+        {
+            _permissionProfile.IsConfigured = true;
+            _permissionProfile.CanReadSelectedWorkspace = true;
+            _permissionProfile.CanRememberWorkspaceSources = true;
+            _permissionProfile.CanBuildProjectMemoryFromDocs = true;
+            _permissionProfile.CanBuildPersonalProfileFromPrivateSources = true;
+            _permissionProfile.PresetLabel = "读私人资料并沉淀安全画像";
+            PersistPermissionProfile();
+            reply = "好，这档权限下我可以读你明确授权的私人资料来源，但只沉淀隐私安全画像，不长期保存原始聊天内容、联系人细节和敏感身份信息。现在你可以把像 G:\\wechat 这样的来源路径发给我。";
             return true;
         }
 
@@ -1421,19 +1532,19 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             $"Codex 已经在 {workspaceLabel} 里跑完这一轮了。{payload.Summary}"
         };
 
-        if (payload.ChangedFiles.Count > 0)
+        if ((payload.ChangedFiles?.Count ?? 0) > 0)
         {
-            lines.Add($"改动：{string.Join("、", payload.ChangedFiles.Take(4))}");
+            lines.Add($"改动：{string.Join("、", payload.ChangedFiles!.Take(4))}");
         }
 
-        if (payload.TestsRun.Count > 0)
+        if ((payload.TestsRun?.Count ?? 0) > 0)
         {
-            lines.Add($"验证：{string.Join("；", payload.TestsRun.Take(3))}");
+            lines.Add($"验证：{string.Join("；", payload.TestsRun!.Take(3))}");
         }
 
-        if (payload.Notes.Count > 0)
+        if ((payload.Notes?.Count ?? 0) > 0)
         {
-            lines.Add($"备注：{string.Join("；", payload.Notes.Take(2))}");
+            lines.Add($"备注：{string.Join("；", payload.Notes!.Take(2))}");
         }
 
         if (!string.IsNullOrWhiteSpace(payload.NextStep))
@@ -1716,6 +1827,10 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         IReadOnlyList<ProjectMemory> knownProjects,
         CancellationToken cancellationToken = default);
 
+    private delegate Task<DistilledUserProfile?> PersonalProfileHandler(
+        string analysisInput,
+        CancellationToken cancellationToken = default);
+
     private enum AiProviderKind
     {
         None,
@@ -1727,5 +1842,6 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         AiProviderKind Kind,
         string Label,
         AiReplyHandler GenerateReplyAsync,
-        ProjectCognitionHandler AnalyzeProjectDumpAsync);
+        ProjectCognitionHandler AnalyzeProjectDumpAsync,
+        PersonalProfileHandler AnalyzePersonalProfileAsync);
 }

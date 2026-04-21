@@ -139,6 +139,45 @@ public sealed class OpenAiChatService
         return _qualityGuard.Normalize(digest);
     }
 
+    public async Task<DistilledUserProfile?> AnalyzePersonalProfileAsync(
+        string analysisInput,
+        CancellationToken cancellationToken = default)
+    {
+        if (!IsConfigured)
+        {
+            return null;
+        }
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, "responses");
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", ApiKey);
+
+        var payload = new OpenAiResponsesRequest
+        {
+            Model = ModelName,
+            Instructions = TuanziCognitionProfile.BuildPersonalDistillationSystemPrompt(),
+            Input = analysisInput
+        };
+
+        request.Content = new StringContent(
+            JsonSerializer.Serialize(payload),
+            Encoding.UTF8,
+            "application/json");
+
+        using var response = await _httpClient.SendAsync(request, cancellationToken);
+        response.EnsureSuccessStatusCode();
+
+        await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
+        using var document = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
+        var rawText = ExtractOutputText(document.RootElement);
+
+        if (!PersonalDistillationService.TryDeserializeProfile(rawText ?? string.Empty, out var profile))
+        {
+            return null;
+        }
+
+        return profile;
+    }
+
     private static string BuildInput(
         IReadOnlyList<ConversationMessage> conversationHistory,
         IReadOnlyList<CompanionTask> orderedTasks,
