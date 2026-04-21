@@ -1,0 +1,24 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "baseUrl": ".",
+    "types": [
+      "node"
+    ],
+    "paths": {
+      "@desktop-companion/shared-types": [
+        "../../packages/shared-types/src/index.ts"
+      ],
+      "@desktop-companion/companion-engine": [
+        "../../packages/companion-engine/src/index.ts"
+      ],
+      "@desktop-companion/ai-provider-none": [
+        "../../packages/ai-provider-none/src/index.ts"
+      ]
+    }
+  },
+  "include": [
+    "src",
+    "vite.config.ts"
+  ]
+}

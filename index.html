@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Task Familiar</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="scene-glow scene-glow-left" aria-hidden="true"></div>
+  <div class="scene-glow scene-glow-right" aria-hidden="true"></div>
+
+  <main class="desktop-shell">
+    <section class="hero-panel window">
+      <div class="window-chrome">
+        <span></span>
+        <span></span>
+        <span></span>
+      </div>
+
+      <div class="hero-layout">
+        <div class="pet-stage">
+          <div id="petAvatar" class="pet-avatar pet-mood-rest" aria-hidden="true">
+            <div class="pet-ear pet-ear-left"></div>
+            <div class="pet-ear pet-ear-right"></div>
+            <div class="pet-body">
+              <div class="pet-face">
+                <span class="pet-eye pet-eye-left"></span>
+                <span class="pet-eye pet-eye-right"></span>
+                <span class="pet-mouth"></span>
+              </div>
+              <div class="pet-blush pet-blush-left"></div>
+              <div class="pet-blush pet-blush-right"></div>
+            </div>
+            <div class="pet-shadow"></div>
+          </div>
+        </div>
+
+        <div class="hero-copy">
+          <p class="eyebrow">DESKTOP PET ORCHESTRATOR</p>
+          <h1>把你的任务管家养在桌面上</h1>
+          <p class="hero-text">
+            每天把任务丢给她，她会盯节奏、催推进、抓阻塞，还会按你设定的频率帮你梳理优先级。
+          </p>
+
+          <div class="speech-card">
+            <span class="speech-tag">宠物播报</span>
+            <p id="petSpeech" class="speech-text">先告诉我今天最重要的一件事，我来帮你盯住它。</p>
+          </div>
+
+          <div class="hero-actions">
+            <button id="grantNotificationsBtn" class="button button-accent" type="button">开启提醒</button>
+            <button id="forceReviewBtn" class="button button-secondary" type="button">立即梳理</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="metric-grid">
+        <article class="metric-card">
+          <span class="metric-label">今日任务</span>
+          <strong id="metricTotal" class="metric-value">0</strong>
+        </article>
+        <article class="metric-card">
+          <span class="metric-label">推进中</span>
+          <strong id="metricDoing" class="metric-value">0</strong>
+        </article>
+        <article class="metric-card">
+          <span class="metric-label">已完成</span>
+          <strong id="metricDone" class="metric-value">0</strong>
+        </article>
+        <article class="metric-card">
+          <span class="metric-label">逾期 / 阻塞</span>
+          <strong id="metricRisk" class="metric-value">0</strong>
+        </article>
+      </div>
+    </section>
+
+    <section class="workspace-grid">
+      <aside class="side-panel">
+        <section class="window panel-block">
+          <h2>新增任务</h2>
+
+          <form id="taskForm" class="task-form">
+            <label>
+              <span>任务标题</span>
+              <input id="taskTitle" name="title" type="text" maxlength="80" placeholder="例如：整理周报、跑步 30 分钟" required>
+            </label>
+
+            <div class="form-row">
+              <label>
+                <span>分类</span>
+                <input id="taskCategory" name="category" type="text" maxlength="30" placeholder="工作 / 学习 / 生活">
+              </label>
+
+              <label>
+                <span>优先级</span>
+                <select id="taskPriority" name="priority">
+                  <option value="high">高</option>
+                  <option value="medium" selected>中</option>
+                  <option value="low">低</option>
+                </select>
+              </label>
+            </div>
+
+            <div class="form-row">
+              <label>
+                <span>预计分钟</span>
+                <input id="taskMinutes" name="minutes" type="number" min="5" max="480" step="5" value="30">
+              </label>
+
+              <label>
+                <span>截止时间</span>
+                <input id="taskDueAt" name="dueAt" type="datetime-local">
+              </label>
+            </div>
+
+            <button class="button button-accent" type="submit">交给宠物盯住</button>
+          </form>
+        </section>
+
+        <section class="window panel-block">
+          <h2>监督节奏</h2>
+
+          <form id="settingsForm" class="settings-form">
+            <label>
+              <span>宠物名字</span>
+              <input id="petNameInput" name="petName" type="text" maxlength="24" placeholder="例如：团子">
+            </label>
+
+            <label>
+              <span>催办间隔（分钟）</span>
+              <input id="reminderMinutesInput" name="reminderMinutes" type="number" min="5" max="240" step="5">
+            </label>
+
+            <label>
+              <span>梳理间隔（分钟）</span>
+              <input id="reviewMinutesInput" name="reviewMinutes" type="number" min="15" max="480" step="15">
+            </label>
+
+            <label>
+              <span>专注冲刺（分钟）</span>
+              <input id="focusMinutesInput" name="focusMinutes" type="number" min="10" max="90" step="5">
+            </label>
+
+            <div class="settings-actions">
+              <button class="button button-secondary" type="submit">保存设置</button>
+              <button id="focusModeBtn" class="button button-ghost" type="button">开始专注冲刺</button>
+            </div>
+          </form>
+
+          <div class="focus-status">
+            <span class="focus-label">当前冲刺</span>
+            <strong id="focusTimerStatus">未开始</strong>
+          </div>
+        </section>
+
+        <section class="window panel-block">
+          <div class="panel-title-row">
+            <h2>阶段梳理</h2>
+            <span id="reviewTimestamp" class="panel-meta">等待首次生成</span>
+          </div>
+
+          <article id="reviewCard" class="review-card">
+            <h3>先放进几件任务，我来帮你排优先级。</h3>
+            <p>梳理会自动根据逾期、阻塞、在做和完成情况刷新，也可以手动点“立即梳理”。</p>
+          </article>
+        </section>
+      </aside>
+
+      <section class="main-panel">
+        <section class="window board-shell">
+          <div class="panel-title-row">
+            <div>
+              <h2>任务编排面板</h2>
+              <p class="panel-subtitle">像养成电子宠物一样，持续给她喂任务和状态。</p>
+            </div>
+            <div class="progress-cluster">
+              <span class="progress-label">完成率</span>
+              <div class="progress-bar">
+                <div id="completionBar" class="progress-fill"></div>
+              </div>
+              <strong id="completionText">0%</strong>
+            </div>
+          </div>
+
+          <div class="board-grid">
+            <section class="lane">
+              <div class="lane-header">
+                <h3>待启动</h3>
+                <span id="todoCount" class="lane-count">0</span>
+              </div>
+              <div id="laneTodo" class="lane-body"></div>
+            </section>
+
+            <section class="lane">
+              <div class="lane-header">
+                <h3>推进中</h3>
+                <span id="doingCount" class="lane-count">0</span>
+              </div>
+              <div id="laneDoing" class="lane-body"></div>
+            </section>
+
+            <section class="lane">
+              <div class="lane-header">
+                <h3>阻塞</h3>
+                <span id="blockedCount" class="lane-count">0</span>
+              </div>
+              <div id="laneBlocked" class="lane-body"></div>
+            </section>
+
+            <section class="lane">
+              <div class="lane-header">
+                <h3>已完成</h3>
+                <span id="doneCount" class="lane-count">0</span>
+              </div>
+              <div id="laneDone" class="lane-body"></div>
+            </section>
+          </div>
+        </section>
+
+        <section class="window log-shell">
+          <div class="panel-title-row">
+            <div>
+              <h2>宠物监督记录</h2>
+              <p class="panel-subtitle">每次催办、梳理、切状态都会留下痕迹。</p>
+            </div>
+            <button id="clearLogBtn" class="button button-ghost" type="button">清空记录</button>
+          </div>
+
+          <ul id="activityLog" class="activity-log"></ul>
+        </section>
+      </section>
+    </section>
+  </main>
+
+  <script src="app.js" defer></script>
+</body>
+</html>

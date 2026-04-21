@@ -1,0 +1,25 @@
+{
+  "name": "@desktop-companion/desktop-shell",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build"
+  },
+  "dependencies": {
+    "@desktop-companion/ai-provider-none": "0.1.0",
+    "@desktop-companion/companion-engine": "0.1.0",
+    "@desktop-companion/shared-types": "0.1.0",
+    "@tauri-apps/api": "^2.0.0"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.0.0",
+    "@types/node": "^22.10.1",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.10"
+  }
+}

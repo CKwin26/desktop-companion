@@ -1,0 +1,35 @@
+name: windows-build
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Typecheck workspace
+        run: npm run typecheck
+
+      - name: Build WPF host
+        run: dotnet build DesktopCompanion.Windows.sln --configuration Release

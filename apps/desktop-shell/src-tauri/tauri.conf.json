@@ -1,0 +1,35 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Desktop Companion",
+  "version": "0.1.0",
+  "identifier": "com.desktopcompanion.shell",
+  "build": {
+    "beforeDevCommand": "npm run dev --workspace @desktop-companion/desktop-shell",
+    "beforeBuildCommand": "npm run build --workspace @desktop-companion/desktop-shell",
+    "devUrl": "http://localhost:1420",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "widget",
+        "title": "Desktop Companion Widget",
+        "width": 260,
+        "height": 390,
+        "resizable": false,
+        "alwaysOnTop": true,
+        "decorations": false,
+        "transparent": true,
+        "shadow": false,
+        "skipTaskbar": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": false,
+    "targets": "all"
+  }
+}

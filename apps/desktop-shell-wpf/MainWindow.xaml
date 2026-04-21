@@ -1,0 +1,323 @@
+<Window x:Class="DesktopCompanion.WpfHost.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:controls="clr-namespace:DesktopCompanion.WpfHost.Controls"
+        mc:Ignorable="d"
+        Title="Desktop Companion Pet"
+        Width="540"
+        Height="470"
+        WindowStyle="None"
+        ResizeMode="NoResize"
+        AllowsTransparency="True"
+        Background="Transparent"
+        ShowInTaskbar="False"
+        Topmost="True"
+        Loaded="OnLoaded">
+  <Window.Resources>
+    <DropShadowEffect x:Key="BubbleShadow"
+                      BlurRadius="30"
+                      Direction="270"
+                      ShadowDepth="10"
+                      Opacity="0.24"
+                      Color="#3322363B" />
+
+    <Style x:Key="GhostButtonStyle" TargetType="Button">
+      <Setter Property="Background" Value="#1022363B" />
+      <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="Padding" Value="10,6" />
+      <Setter Property="Cursor" Value="Hand" />
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="Button">
+            <Border Background="{TemplateBinding Background}"
+                    CornerRadius="999">
+              <ContentPresenter HorizontalAlignment="Center"
+                                VerticalAlignment="Center"
+                                Margin="{TemplateBinding Padding}" />
+            </Border>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+
+    <Style x:Key="AccentButtonStyle"
+           TargetType="Button"
+           BasedOn="{StaticResource GhostButtonStyle}">
+      <Setter Property="Background" Value="#3379B5AA" />
+      <Setter Property="Foreground" Value="#FF2B6E64" />
+    </Style>
+
+    <Style x:Key="InvisiblePetButtonStyle" TargetType="Button">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="Padding" Value="0" />
+      <Setter Property="Cursor" Value="Hand" />
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="Button">
+            <ContentPresenter />
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+
+    <Style x:Key="ClickCatcherButtonStyle" TargetType="Button">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="Padding" Value="0" />
+      <Setter Property="Cursor" Value="Hand" />
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="Button">
+            <Border Background="{TemplateBinding Background}" />
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+
+    <Style x:Key="PanelTextBoxStyle" TargetType="TextBox">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="Padding" Value="0" />
+      <Setter Property="FontSize" Value="13" />
+      <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+      <Setter Property="TextWrapping" Value="Wrap" />
+      <Setter Property="AcceptsReturn" Value="False" />
+      <Setter Property="VerticalContentAlignment" Value="Center" />
+      <Setter Property="CaretBrush" Value="{StaticResource InkBrush}" />
+    </Style>
+
+    <Style x:Key="SuggestionBubbleButtonStyle"
+           TargetType="Button"
+           BasedOn="{StaticResource GhostButtonStyle}">
+      <Setter Property="Background" Value="#FFF8F3EA" />
+      <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+      <Setter Property="Padding" Value="14,10" />
+      <Setter Property="Margin" Value="0,0,0,8" />
+      <Setter Property="Width" Value="212" />
+      <Setter Property="HorizontalAlignment" Value="Left" />
+      <Setter Property="BorderBrush" Value="#2279B5AA" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="Button">
+            <Border Background="{TemplateBinding Background}"
+                    BorderBrush="{TemplateBinding BorderBrush}"
+                    BorderThickness="{TemplateBinding BorderThickness}"
+                    CornerRadius="999"
+                    Effect="{StaticResource BubbleShadow}">
+              <ContentPresenter HorizontalAlignment="Center"
+                                VerticalAlignment="Center"
+                                Margin="{TemplateBinding Padding}" />
+            </Border>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+
+    <ContextMenu x:Key="PetSettingsMenu">
+      <MenuItem Header="在 VS Code 打开最近项目"
+                Click="OnOpenRecentWorkspaceInVsCodeMenuClicked" />
+      <Separator />
+      <MenuItem Header="权限设置"
+                Click="OnPermissionsMenuClicked" />
+      <MenuItem Header="查看当前权限"
+                Click="OnPermissionSummaryMenuClicked" />
+      <Separator />
+      <MenuItem Header="清空已授权目录"
+                Click="OnClearWorkspaceSourcesMenuClicked" />
+      <MenuItem Header="重新首次引导"
+                Click="OnRestartOnboardingMenuClicked" />
+      <Separator />
+      <MenuItem Header="退出团子"
+                Click="OnExitMenuClicked" />
+    </ContextMenu>
+  </Window.Resources>
+
+  <Grid PreviewMouseLeftButtonDown="OnDragSurfaceMouseLeftButtonDown"
+        PreviewMouseMove="OnDragSurfaceMouseMove"
+        PreviewMouseLeftButtonUp="OnDragSurfaceMouseLeftButtonUp">
+    <Grid Width="540"
+          Height="470"
+          HorizontalAlignment="Right">
+      <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="248" />
+        <ColumnDefinition Width="292" />
+      </Grid.ColumnDefinitions>
+
+      <Grid x:Name="TaskPanel"
+            Grid.Column="0"
+            Width="220"
+            HorizontalAlignment="Right"
+            VerticalAlignment="Top"
+            Margin="0,166,-74,0"
+            Visibility="Hidden"
+            Opacity="0"
+            IsHitTestVisible="False">
+        <Grid.RenderTransform>
+          <TranslateTransform x:Name="TaskPanelTransform" X="-24" />
+        </Grid.RenderTransform>
+
+        <StackPanel Width="212"
+                    VerticalAlignment="Top">
+          <ItemsControl ItemsSource="{Binding SuggestionBubbles}">
+            <ItemsControl.ItemsPanel>
+              <ItemsPanelTemplate>
+                <StackPanel />
+              </ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+            <ItemsControl.ItemTemplate>
+              <DataTemplate>
+                <Button Click="OnSuggestionBubbleClicked"
+                        Tag="{Binding Text}"
+                        Style="{StaticResource SuggestionBubbleButtonStyle}">
+                  <TextBlock Text="{Binding Text}"
+                             FontSize="13"
+                             FontWeight="SemiBold"
+                             TextAlignment="Center"
+                             TextWrapping="Wrap" />
+                </Button>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </StackPanel>
+      </Grid>
+
+      <Grid Grid.Column="1"
+            Margin="0,18,8,18">
+        <Canvas Width="292"
+                Height="420"
+                HorizontalAlignment="Right"
+                VerticalAlignment="Top">
+          <Button x:Name="ClosedShellClickCatcher"
+                  Width="228"
+                  Height="388"
+                  Canvas.Left="54"
+                  Canvas.Top="14"
+                  Background="#01FFFFFF"
+                  AutomationProperties.AutomationId="ClosedShellClickCatcher"
+                  AutomationProperties.Name="ClosedShellClickCatcher"
+                  Click="OnTogglePanelClicked"
+                  ContextMenu="{StaticResource PetSettingsMenu}"
+                  Style="{StaticResource ClickCatcherButtonStyle}" />
+
+          <StackPanel Width="198"
+                      Canvas.Left="84"
+                      Canvas.Top="4">
+            <Border Width="198"
+                    Height="116"
+                    Padding="14,12,14,12"
+                    CornerRadius="24"
+                    Background="{StaticResource CreamBrush}"
+                    BorderBrush="{StaticResource SoftBorderBrush}"
+                    BorderThickness="1"
+                    Effect="{StaticResource BubbleShadow}">
+              <ScrollViewer VerticalScrollBarVisibility="Auto"
+                            HorizontalScrollBarVisibility="Disabled">
+                <TextBlock Text="{Binding WhisperLine}"
+                           TextWrapping="Wrap"
+                           FontFamily="Georgia"
+                           FontSize="14"
+                           FontWeight="Bold"
+                           LineHeight="21"
+                           Foreground="{StaticResource InkBrush}" />
+              </ScrollViewer>
+            </Border>
+            <Polygon HorizontalAlignment="Center"
+                     Margin="0,-2,0,0"
+                     Fill="{StaticResource CreamBrush}"
+                     Points="0,0 18,0 9,12" />
+          </StackPanel>
+
+          <Button x:Name="PetToggleButton"
+                  Width="212"
+                  Height="236"
+                  Canvas.Left="78"
+                  Canvas.Top="128"
+                  AutomationProperties.AutomationId="PetToggleButton"
+                  AutomationProperties.Name="PetToggleButton"
+                  Click="OnTogglePanelClicked"
+                  ContextMenu="{StaticResource PetSettingsMenu}"
+                  Style="{StaticResource InvisiblePetButtonStyle}">
+            <Viewbox Width="168"
+                     Height="208"
+                     HorizontalAlignment="Center"
+                     VerticalAlignment="Center"
+                     Stretch="Uniform">
+              <controls:PetAvatarControl IsHitTestVisible="False" />
+            </Viewbox>
+          </Button>
+
+          <Border x:Name="ComposerBubble"
+                  Width="198"
+                  Visibility="Hidden"
+                  Opacity="0"
+                  Canvas.Left="84"
+                  Canvas.Top="364"
+                  Padding="12,12"
+                  CornerRadius="24"
+                  Background="#FFFFFFFF"
+                  BorderBrush="#3379B5AA"
+                  BorderThickness="1.5"
+                  Effect="{StaticResource BubbleShadow}">
+            <StackPanel>
+              <TextBlock Text="跟团子说一句"
+                         FontSize="11"
+                         FontWeight="SemiBold"
+                         Foreground="{Binding AccentBrush}" />
+              <Grid Margin="0,8,0,0">
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="*" />
+                  <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+
+                <Grid>
+                  <TextBox x:Name="QuickComposerTextBox"
+                           AutomationProperties.AutomationId="QuickComposerTextBox"
+                           AutomationProperties.Name="QuickComposerTextBox"
+                           Text="{Binding ChatInput, UpdateSourceTrigger=PropertyChanged}"
+                           KeyDown="OnNaturalInputKeyDown"
+                           GotKeyboardFocus="OnQuickComposerFocused"
+                           MinHeight="22"
+                           IsEnabled="{Binding CanSendMessage}"
+                           Style="{StaticResource PanelTextBoxStyle}" />
+                  <TextBlock Text="直接说，比如：我现在有点乱 / 帮我盯住 pitch"
+                             Margin="0,2,0,0"
+                             FontSize="12"
+                             Foreground="#8062767B"
+                             IsHitTestVisible="False">
+                    <TextBlock.Style>
+                      <Style TargetType="TextBlock">
+                        <Setter Property="Visibility" Value="Collapsed" />
+                        <Style.Triggers>
+                          <DataTrigger Binding="{Binding ChatInput}" Value="">
+                            <Setter Property="Visibility" Value="Visible" />
+                          </DataTrigger>
+                        </Style.Triggers>
+                      </Style>
+                    </TextBlock.Style>
+                  </TextBlock>
+                </Grid>
+
+                <Button Grid.Column="1"
+                        x:Name="SubmitInputButton"
+                        AutomationProperties.AutomationId="SubmitInputButton"
+                        AutomationProperties.Name="SubmitInputButton"
+                        Margin="10,0,0,0"
+                        Click="OnSubmitInputClicked"
+                        Style="{StaticResource AccentButtonStyle}"
+                        IsEnabled="{Binding CanSendMessage}"
+                        Content="{Binding SendButtonText}" />
+              </Grid>
+            </StackPanel>
+          </Border>
+        </Canvas>
+      </Grid>
+    </Grid>
+  </Grid>
+</Window>
