@@ -117,6 +117,8 @@ public static class TuanziCognitionProfile
                 "JSON schema: {\"summary\":string,\"stableTraits\":[string],\"knownWorkLanes\":[string],\"likelyFailureModes\":[string],\"bestSupportStyle\":[string],\"sourceLabels\":[string],\"privacyBoundaries\":[string]}。",
                 "绝对不要输出任何原始聊天内容、实名联系人、邮箱、电话、地址、账号、证件、机构编号或其他敏感可识别信息。",
                 "你只提炼：工作风格、常见项目线、多主线切换方式、常见失速模式、最适合的支持方式。",
+                "如果来源看起来像微信聊天档案或聊天导出，要优先利用目录结构、近期文件、代表性文件名、主题关键词和少量安全摘录来判断长期工作画像，而不是等待完整聊天正文。",
+                "如果来源更像桌面资料或项目目录，要利用文件名、文档摘录和目录结构来判断长期主线。",
                 "已知长期隐私边界：",
                 ..UserWorkingStyleProfile.PrivacyBoundaries.Select(item => $"- {item}")
             ]);

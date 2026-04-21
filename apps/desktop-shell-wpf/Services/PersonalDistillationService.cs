@@ -37,11 +37,45 @@ public sealed class PersonalDistillationService
         "notes",
         "chat",
         "wechat",
+        "conversation",
+        "history",
+        "session",
+        "export",
         "message",
         "resume",
         "cv",
         "sop",
         "portfolio"
+    ];
+
+    private static readonly string[] GenericStopTokens =
+    [
+        "wechat",
+        "chat",
+        "message",
+        "messages",
+        "history",
+        "session",
+        "export",
+        "file",
+        "files",
+        "doc",
+        "docx",
+        "pdf",
+        "ppt",
+        "pptx",
+        "xlsx",
+        "xls",
+        "json",
+        "html",
+        "txt",
+        "md",
+        "the",
+        "and",
+        "for",
+        "with",
+        "from",
+        "bookmarks"
     ];
 
     private static readonly string[] FilenameCueExtensions =
@@ -164,6 +198,11 @@ public sealed class PersonalDistillationService
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToList();
 
+            var topicKeywords = ExtractTopicKeywords(
+                representativeFileNames,
+                topEntries,
+                readableFiles.Select(Path.GetFileName));
+
             var documents = new List<PersonalDocumentSnippet>();
             foreach (var file in readableFiles)
             {
@@ -197,6 +236,7 @@ public sealed class PersonalDistillationService
                 topEntries,
                 extensionSummary,
                 representativeFileNames,
+                topicKeywords,
                 documents));
 
             analysisSections.Add($"来源：{resolvedPath}");
@@ -212,6 +252,9 @@ public sealed class PersonalDistillationService
             analysisSections.Add(representativeFileNames.Count == 0
                 ? "代表性文件名线索：暂无。"
                 : $"代表性文件名线索：{string.Join("；", representativeFileNames)}");
+            analysisSections.Add(topicKeywords.Count == 0
+                ? "主题关键词线索：暂无。"
+                : $"主题关键词线索：{string.Join("、", topicKeywords)}");
 
             if (documents.Count == 0)
             {
@@ -240,6 +283,7 @@ public sealed class PersonalDistillationService
         var normalizedTokens = sourceLabels
             .Concat(scan.Sources.SelectMany(source => source.TopEntries))
             .Concat(scan.Sources.SelectMany(source => source.RepresentativeFileNames))
+            .Concat(scan.Sources.SelectMany(source => source.TopicKeywords))
             .SelectMany(label => label.Split([' ', '-', '_', '(', ')', '（', '）', '.', ':'], StringSplitOptions.RemoveEmptyEntries))
             .Select(token => token.Trim())
             .Where(token => !string.IsNullOrWhiteSpace(token))
@@ -490,6 +534,7 @@ public sealed class PersonalDistillationService
             return Path.GetExtension(filePath).ToLowerInvariant() switch
             {
                 ".docx" => ReadDocx(filePath),
+                ".json" => ReadJson(filePath),
                 ".html" => ReadHtml(filePath),
                 ".htm" => ReadHtml(filePath),
                 _ => File.ReadAllText(filePath)
@@ -520,6 +565,15 @@ public sealed class PersonalDistillationService
         return string.Join(" ", texts);
     }
 
+    private static string ReadJson(string filePath)
+    {
+        using var stream = File.OpenRead(filePath);
+        using var document = JsonDocument.Parse(stream);
+        var values = new List<string>();
+        CollectJsonStrings(document.RootElement, values, 0);
+        return string.Join(" ", values.Take(120));
+    }
+
     private static string ReadHtml(string filePath)
     {
         var html = File.ReadAllText(filePath);
@@ -544,6 +598,52 @@ public sealed class PersonalDistillationService
         }
 
         return $"{cleaned[..maxLength].Trim()}...";
+    }
+
+    private static void CollectJsonStrings(JsonElement element, List<string> values, int depth)
+    {
+        if (values.Count >= 120 || depth > 8)
+        {
+            return;
+        }
+
+        switch (element.ValueKind)
+        {
+            case JsonValueKind.String:
+            {
+                var text = element.GetString()?.Trim();
+                if (!string.IsNullOrWhiteSpace(text) && text.Length >= 3)
+                {
+                    values.Add(text);
+                }
+
+                break;
+            }
+            case JsonValueKind.Object:
+                foreach (var property in element.EnumerateObject())
+                {
+                    if (values.Count >= 120)
+                    {
+                        break;
+                    }
+
+                    CollectJsonStrings(property.Value, values, depth + 1);
+                }
+
+                break;
+            case JsonValueKind.Array:
+                foreach (var item in element.EnumerateArray())
+                {
+                    if (values.Count >= 120)
+                    {
+                        break;
+                    }
+
+                    CollectJsonStrings(item, values, depth + 1);
+                }
+
+                break;
+        }
     }
 
     private static int ScoreRelativePath(string relativePath)
@@ -616,6 +716,41 @@ public sealed class PersonalDistillationService
                || topEntries.Any(entry => entry.Equals("db_storage", StringComparison.OrdinalIgnoreCase));
     }
 
+    private static IReadOnlyList<string> ExtractTopicKeywords(
+        IEnumerable<string?> representativeFileNames,
+        IEnumerable<string?> topEntries,
+        IEnumerable<string?> additionalNames)
+    {
+        var tokens = representativeFileNames
+            .Concat(topEntries)
+            .Concat(additionalNames)
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .SelectMany(SplitIntoTopicTokens)
+            .Select(token => token.Trim())
+            .Where(token => token.Length >= 2)
+            .Where(token => !Regex.IsMatch(token, @"^\d+$"))
+            .Where(token => !GenericStopTokens.Contains(token, StringComparer.OrdinalIgnoreCase))
+            .GroupBy(token => token, StringComparer.OrdinalIgnoreCase)
+            .OrderByDescending(group => group.Count())
+            .ThenBy(group => group.Key.Length)
+            .Take(12)
+            .Select(group => group.Key)
+            .ToList();
+
+        return tokens;
+    }
+
+    private static IEnumerable<string> SplitIntoTopicTokens(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return [];
+        }
+
+        return Regex.Matches(value, @"[\p{IsCJKUnifiedIdeographs}]{2,}|[A-Za-z][A-Za-z0-9+#-]{2,}")
+            .Select(match => match.Value);
+    }
+
     public sealed record PersonalDocumentSnippet(
         string RelativePath,
         string FileName,
@@ -627,6 +762,7 @@ public sealed class PersonalDistillationService
         IReadOnlyList<string> TopEntries,
         IReadOnlyList<string> ExtensionSummary,
         IReadOnlyList<string> RepresentativeFileNames,
+        IReadOnlyList<string> TopicKeywords,
         IReadOnlyList<PersonalDocumentSnippet> Documents);
 
     public sealed record PersonalScanResult(
