@@ -159,6 +159,35 @@ The current default model in code is `gemma4:e4b`.
 - [Tuanzi cognition assets](./docs/tuanzi-cognition-assets.md)
 - [Work progress distillation report](./docs/work-progress-distillation-report.md)
 
+## References and Inspirations
+
+This project is original, but several open-source projects and technical docs were useful reference points while shaping the current direction.
+
+### Product / interaction references
+
+- [VPet](https://github.com/LorisYounger/VPet)
+  - strong reference for WPF-based desktop-pet presence and plugin-oriented desktop pet thinking
+- [BongoCat](https://github.com/ayangweb/BongoCat)
+  - useful reference for lightweight desktop-pet shell behavior and cross-platform pet interaction ideas
+- [ActivityWatch](https://github.com/ActivityWatch/activitywatch)
+  - useful reference for privacy-first local activity awareness and the idea of background progress sensing
+
+### Technical references
+
+- [OpenAI Responses API](https://platform.openai.com/docs/api-reference/responses)
+  - current OpenAI API reference for the provider path used in this project
+- [Ollama Chat API](https://docs.ollama.com/api/chat)
+  - local model chat API reference used by the Ollama provider path
+
+### Product framing references
+
+- [Final product structure](./docs/final-product-structure.md)
+  - the internal product boundary document for this repository
+- [Project cognition](./docs/project-cognition.md)
+  - internal notes for how mixed work items are grouped into project lines
+- [Tuanzi cognition assets](./docs/tuanzi-cognition-assets.md)
+  - internal cognition and persona references used by the companion layer
+
 ## Contributing
 
 See [CONTRIBUTING.md](./CONTRIBUTING.md).
