@@ -29,6 +29,47 @@ That means:
 - project cognition is background support, not a dashboard product
 - the pet shell matters as much as the reasoning layer
 
+## What The Final Product Should Feel Like
+
+The target product is not a dashboard, a kanban board, or a report generator with a pet skin on top.
+
+The intended end state is:
+
+- a desktop-resident character that feels present even when no large window is open
+- a conversation-first interface where the user clicks the pet, says one thing, and gets a useful reply immediately
+- a companion that can catch emotion, untangle mixed work items, and reduce them into the next real step
+- a lightweight memory layer that remembers current threads, blockers, next actions, and project lines without turning into heavy project-management UI
+- an optional execution bridge that can read approved project folders, open VS Code, dispatch work to Codex, and report results back through the pet
+
+In short, the final product should feel like:
+
+> a desktop companion that helps the user restart action, not another productivity dashboard
+
+## Where The Project Is Now
+
+The project is already past the pure-concept stage, but it is not at a polished release yet.
+
+Current state:
+
+- the canonical Windows runtime exists and builds cleanly as a WPF host
+- the desktop pet shell, bubble interaction, and character asset are already in place
+- OpenAI and Ollama provider paths are wired in
+- lightweight task memory, project-memory, permission gating, and workspace ingestion already exist
+- VS Code / Codex bridge exists and can dispatch structured work
+- the repo has now been cleaned up for open-source publishing
+
+What is still unfinished:
+
+- the overall UX still needs another round of simplification and visual polish
+- some logic is still too concentrated in `MainWindowViewModel`
+- legacy prototypes are still present in the repo as references
+- there is not yet a stable packaged release flow for end users
+- the product still needs a cleaner “first-run to daily-use” path
+
+So the project is currently best described as:
+
+> a working WPF-first prototype with real integrations, moving toward a cleaner open-source alpha
+
 ## Current Main Features
 
 - WPF desktop pet host with transparent always-on-top shell
