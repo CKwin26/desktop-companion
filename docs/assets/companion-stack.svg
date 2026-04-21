@@ -1,0 +1,62 @@
+<svg width="1200" height="760" viewBox="0 0 1200 760" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="stackBg" x1="60" y1="40" x2="1140" y2="720" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFF9F1"/>
+      <stop offset="1" stop-color="#F4ECE2"/>
+    </linearGradient>
+    <filter id="softShadow" x="126" y="76" width="948" height="616" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feFlood flood-opacity="0" result="BackgroundImageFix"/>
+      <feColorMatrix in="SourceAlpha" type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha"/>
+      <feOffset dy="18"/>
+      <feGaussianBlur stdDeviation="20"/>
+      <feColorMatrix type="matrix" values="0 0 0 0 0.223529 0 0 0 0 0.172549 0 0 0 0 0.129412 0 0 0 0.14 0"/>
+      <feBlend mode="normal" in2="BackgroundImageFix" result="effect1_dropShadow_1_2"/>
+      <feBlend mode="normal" in="SourceGraphic" in2="effect1_dropShadow_1_2" result="shape"/>
+    </filter>
+  </defs>
+
+  <rect width="1200" height="760" rx="34" fill="url(#stackBg)"/>
+  <text x="90" y="108" fill="#20363B" font-family="Segoe UI, Arial, sans-serif" font-size="46" font-weight="700">Current Product Stack</text>
+  <text x="90" y="150" fill="#5D6B72" font-family="Segoe UI, Arial, sans-serif" font-size="24">WPF is the canonical host. Conversation stays in front. Task memory stays light.</text>
+
+  <g filter="url(#softShadow)">
+    <rect x="166" y="204" width="868" height="92" rx="26" fill="#FFFDF9"/>
+    <rect x="166" y="314" width="868" height="92" rx="26" fill="#FFFDF9"/>
+    <rect x="166" y="424" width="868" height="92" rx="26" fill="#FFFDF9"/>
+    <rect x="166" y="534" width="868" height="92" rx="26" fill="#FFFDF9"/>
+  </g>
+
+  <rect x="166" y="204" width="14" height="92" rx="7" fill="#79B5AA"/>
+  <rect x="166" y="314" width="14" height="92" rx="7" fill="#F3BF7A"/>
+  <rect x="166" y="424" width="14" height="92" rx="7" fill="#84A4D8"/>
+  <rect x="166" y="534" width="14" height="92" rx="7" fill="#D98AA4"/>
+
+  <text x="210" y="244" fill="#20363B" font-family="Segoe UI, Arial, sans-serif" font-size="30" font-weight="700">Pet Shell</text>
+  <text x="210" y="277" fill="#617077" font-family="Segoe UI, Arial, sans-serif" font-size="22">Transparent WPF host, click-to-open bubbles, desktop presence, right-click menu</text>
+
+  <text x="210" y="354" fill="#20363B" font-family="Segoe UI, Arial, sans-serif" font-size="30" font-weight="700">Conversation Core</text>
+  <text x="210" y="387" fill="#617077" font-family="Segoe UI, Arial, sans-serif" font-size="22">OpenAI / Ollama replies, persona framing, single-turn interaction-first UX</text>
+
+  <text x="210" y="464" fill="#20363B" font-family="Segoe UI, Arial, sans-serif" font-size="30" font-weight="700">Task + Project Memory</text>
+  <text x="210" y="497" fill="#617077" font-family="Segoe UI, Arial, sans-serif" font-size="22">Current threads, blockers, next actions, project-line digestion, local stores</text>
+
+  <text x="210" y="574" fill="#20363B" font-family="Segoe UI, Arial, sans-serif" font-size="30" font-weight="700">Bridges + Permissions</text>
+  <text x="210" y="607" fill="#617077" font-family="Segoe UI, Arial, sans-serif" font-size="22">Workspace ingestion, explicit local-read permissions, VS Code / Codex dispatch</text>
+
+  <g>
+    <rect x="850" y="206" width="184" height="420" rx="28" fill="#20363B"/>
+    <text x="942" y="254" text-anchor="middle" fill="#FFF8F0" font-family="Segoe UI, Arial, sans-serif" font-size="26" font-weight="700">Canonical Host</text>
+    <text x="942" y="296" text-anchor="middle" fill="#BFD0D4" font-family="Segoe UI, Arial, sans-serif" font-size="22">Windows-only</text>
+    <rect x="886" y="334" width="112" height="112" rx="30" fill="#FFF3E7"/>
+    <path d="M916 350 L902 380 L928 372 Z" fill="#E8C8D4"/>
+    <path d="M968 350 L956 372 L982 380 Z" fill="#E8C8D4"/>
+    <rect x="906" y="372" width="72" height="62" rx="30" fill="#FFE4C9"/>
+    <circle cx="930" cy="398" r="6" fill="#A0262E"/>
+    <circle cx="954" cy="398" r="6" fill="#A0262E"/>
+    <path d="M930 418 C938 426 946 426 954 418" stroke="#20363B" stroke-width="3.5" stroke-linecap="round"/>
+    <text x="942" y="496" text-anchor="middle" fill="#FFF8F0" font-family="Segoe UI, Arial, sans-serif" font-size="22" font-weight="700">WPF</text>
+    <text x="942" y="534" text-anchor="middle" fill="#BFD0D4" font-family="Segoe UI, Arial, sans-serif" font-size="18">Active runtime</text>
+    <text x="942" y="566" text-anchor="middle" fill="#BFD0D4" font-family="Segoe UI, Arial, sans-serif" font-size="18">Desktop shell</text>
+    <text x="942" y="598" text-anchor="middle" fill="#BFD0D4" font-family="Segoe UI, Arial, sans-serif" font-size="18">Bubble UI</text>
+  </g>
+</svg>

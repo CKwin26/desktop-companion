@@ -1,0 +1,78 @@
+<svg width="1280" height="640" viewBox="0 0 1280 640" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="120" y1="80" x2="1180" y2="580" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFF9F1"/>
+      <stop offset="1" stop-color="#F1E6DA"/>
+    </linearGradient>
+    <linearGradient id="card" x1="280" y1="90" x2="980" y2="550" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFFDF9"/>
+      <stop offset="1" stop-color="#FFF3E8"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="740" y1="170" x2="1120" y2="520" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#89C7B9"/>
+      <stop offset="1" stop-color="#4E8A84"/>
+    </linearGradient>
+    <filter id="shadow" x="160" y="60" width="980" height="540" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feFlood flood-opacity="0" result="BackgroundImageFix"/>
+      <feColorMatrix in="SourceAlpha" type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha"/>
+      <feOffset dy="18"/>
+      <feGaussianBlur stdDeviation="24"/>
+      <feColorMatrix type="matrix" values="0 0 0 0 0.247059 0 0 0 0 0.180392 0 0 0 0 0.133333 0 0 0 0.14 0"/>
+      <feBlend mode="normal" in2="BackgroundImageFix" result="effect1_dropShadow_1_2"/>
+      <feBlend mode="normal" in="SourceGraphic" in2="effect1_dropShadow_1_2" result="shape"/>
+    </filter>
+  </defs>
+
+  <rect width="1280" height="640" rx="36" fill="url(#bg)"/>
+  <circle cx="145" cy="122" r="76" fill="#F7E9D5"/>
+  <circle cx="1135" cy="524" r="104" fill="#E8F4EF"/>
+  <circle cx="1030" cy="128" r="46" fill="#F7E9D5"/>
+
+  <g filter="url(#shadow)">
+    <rect x="210" y="92" width="860" height="460" rx="34" fill="url(#card)"/>
+  </g>
+
+  <text x="286" y="190" fill="#20363B" font-family="Segoe UI, Arial, sans-serif" font-size="58" font-weight="700">Desktop Companion</text>
+  <text x="286" y="238" fill="#406168" font-family="Segoe UI, Arial, sans-serif" font-size="28" font-weight="500">A Windows-first desktop pet that helps you restart action.</text>
+  <text x="286" y="292" fill="#5B676E" font-family="Segoe UI, Arial, sans-serif" font-size="21">Conversation first. Lightweight task memory. Project cognition in the background.</text>
+
+  <g>
+    <rect x="286" y="340" width="184" height="46" rx="23" fill="#E8F4EF"/>
+    <text x="378" y="370" text-anchor="middle" fill="#2C6D64" font-family="Segoe UI, Arial, sans-serif" font-size="20" font-weight="600">Conversation first</text>
+
+    <rect x="486" y="340" width="186" height="46" rx="23" fill="#F6EBDD"/>
+    <text x="579" y="370" text-anchor="middle" fill="#7E5C39" font-family="Segoe UI, Arial, sans-serif" font-size="20" font-weight="600">Project cognition</text>
+
+    <rect x="688" y="340" width="218" height="46" rx="23" fill="#EAF0FB"/>
+    <text x="797" y="370" text-anchor="middle" fill="#4060A0" font-family="Segoe UI, Arial, sans-serif" font-size="20" font-weight="600">VS Code / Codex bridge</text>
+  </g>
+
+  <text x="286" y="446" fill="#5D676D" font-family="Segoe UI, Arial, sans-serif" font-size="22">WPF shell  •  OpenAI / Ollama  •  Permission-gated workspace reading</text>
+
+  <g transform="translate(830 136)">
+    <rect x="0" y="0" width="210" height="112" rx="24" fill="#FFF9F3" stroke="#E9D8C7" stroke-width="2"/>
+    <text x="28" y="40" fill="#2A3A40" font-family="Segoe UI, Arial, sans-serif" font-size="20" font-weight="700">What is the next real step?</text>
+    <text x="28" y="72" fill="#627179" font-family="Segoe UI, Arial, sans-serif" font-size="18">I can untangle the list,</text>
+    <text x="28" y="96" fill="#627179" font-family="Segoe UI, Arial, sans-serif" font-size="18">then hand work to Codex.</text>
+    <path d="M118 112 L143 112 L129 132 Z" fill="#FFF9F3" stroke="#E9D8C7" stroke-width="2"/>
+  </g>
+
+  <g transform="translate(860 228)">
+    <ellipse cx="124" cy="276" rx="104" ry="18" fill="#2D2E36" opacity="0.14"/>
+    <ellipse cx="118" cy="124" rx="108" ry="108" fill="url(#accent)" opacity="0.16"/>
+
+    <path d="M98 20 L74 70 L116 56 Z" fill="#F7DDE8"/>
+    <path d="M176 20 L158 56 L200 70 Z" fill="#F7DDE8"/>
+    <path d="M64 104 C64 55 102 22 136 22 C171 22 208 55 208 104 L208 170 C208 229 173 264 136 264 C99 264 64 229 64 170 Z" fill="#FFE9D2"/>
+    <path d="M76 118 C76 78 106 48 136 48 C166 48 196 78 196 118 L196 166 C196 212 168 244 136 244 C104 244 76 212 76 166 Z" fill="#FFF7EE"/>
+    <circle cx="111" cy="138" r="10" fill="#A0262E"/>
+    <circle cx="161" cy="138" r="10" fill="#A0262E"/>
+    <path d="M128 162 C132 156 140 156 144 162" stroke="#9A7A5F" stroke-width="4" stroke-linecap="round"/>
+    <path d="M112 184 C126 198 146 198 160 184" stroke="#2A3A40" stroke-width="5" stroke-linecap="round"/>
+    <circle cx="94" cy="178" r="12" fill="#F8C5B3" opacity="0.7"/>
+    <circle cx="178" cy="178" r="12" fill="#F8C5B3" opacity="0.7"/>
+    <rect x="82" y="250" width="108" height="30" rx="15" fill="#FFFFFF" opacity="0.8"/>
+  </g>
+
+  <text x="284" y="520" fill="#88949A" font-family="Segoe UI, Arial, sans-serif" font-size="18">Open source repository prepared for GitHub, with WPF as the canonical runtime.</text>
+</svg>

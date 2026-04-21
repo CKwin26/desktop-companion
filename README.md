@@ -1,5 +1,9 @@
 # Desktop Companion
 
+<p align="center">
+  <img src="./docs/assets/github-cover.svg" alt="Desktop Companion cover" width="100%" />
+</p>
+
 Desktop Companion is a Windows-first desktop pet that acts like a conversational work companion.
 
 The current canonical runtime is a WPF host under `apps/desktop-shell-wpf`. Earlier prototypes are still kept in the repo as references, but they are not the main product path anymore.
@@ -36,6 +40,16 @@ That means:
 - explicit permission flow before scanning local project folders
 - workspace ingestion for `README`, summary docs, notes, code, and selected text assets
 - VS Code / Codex bridge for opening a workspace and dispatching structured tasks
+
+## Visual Preview
+
+<p align="center">
+  <img src="./apps/desktop-shell-wpf/Assets/Images/tuanzi-avatar.png" alt="Tuanzi avatar" width="260" />
+</p>
+
+<p align="center">
+  <img src="./docs/assets/companion-stack.svg" alt="Desktop Companion stack" width="100%" />
+</p>
 
 ## Repository Layout
 
