@@ -16,8 +16,8 @@
   </defs>
 
   <rect width="1200" height="760" rx="34" fill="url(#stackBg)"/>
-  <text x="90" y="108" fill="#20363B" font-family="Segoe UI, Arial, sans-serif" font-size="46" font-weight="700">Current Product Stack</text>
-  <text x="90" y="150" fill="#5D6B72" font-family="Segoe UI, Arial, sans-serif" font-size="24">WPF is the canonical host. Conversation stays in front. Task memory stays light.</text>
+  <text x="90" y="108" fill="#20363B" font-family="Segoe UI, Arial, sans-serif" font-size="46" font-weight="700">Current Multi-Thread RA Stack</text>
+  <text x="90" y="150" fill="#5D6B72" font-family="Segoe UI, Arial, sans-serif" font-size="24">WPF is the canonical host. Conversation stays in front. Multiple project lines stay in memory.</text>
 
   <g filter="url(#softShadow)">
     <rect x="166" y="204" width="868" height="92" rx="26" fill="#FFFDF9"/>
@@ -37,7 +37,7 @@
   <text x="210" y="354" fill="#20363B" font-family="Segoe UI, Arial, sans-serif" font-size="30" font-weight="700">Conversation Core</text>
   <text x="210" y="387" fill="#617077" font-family="Segoe UI, Arial, sans-serif" font-size="22">OpenAI / Ollama replies, persona framing, single-turn interaction-first UX</text>
 
-  <text x="210" y="464" fill="#20363B" font-family="Segoe UI, Arial, sans-serif" font-size="30" font-weight="700">Task + Project Memory</text>
+  <text x="210" y="464" fill="#20363B" font-family="Segoe UI, Arial, sans-serif" font-size="30" font-weight="700">Multi-Thread Work Memory</text>
   <text x="210" y="497" fill="#617077" font-family="Segoe UI, Arial, sans-serif" font-size="22">Current threads, blockers, next actions, project-line digestion, local stores</text>
 
   <text x="210" y="574" fill="#20363B" font-family="Segoe UI, Arial, sans-serif" font-size="30" font-weight="700">Bridges + Permissions</text>

@@ -33,27 +33,27 @@
   </g>
 
   <text x="286" y="190" fill="#20363B" font-family="Segoe UI, Arial, sans-serif" font-size="58" font-weight="700">Desktop Companion</text>
-  <text x="286" y="238" fill="#406168" font-family="Segoe UI, Arial, sans-serif" font-size="28" font-weight="500">A Windows-first desktop pet that helps you restart action.</text>
-  <text x="286" y="292" fill="#5B676E" font-family="Segoe UI, Arial, sans-serif" font-size="21">Conversation first. Lightweight task memory. Project cognition in the background.</text>
+  <text x="286" y="238" fill="#406168" font-family="Segoe UI, Arial, sans-serif" font-size="28" font-weight="500">A Windows-first desktop RA that can understand multiple workstreams.</text>
+  <text x="286" y="292" fill="#5B676E" font-family="Segoe UI, Arial, sans-serif" font-size="21">Conversation first. Multi-thread memory. Project-line cognition as a core capability.</text>
 
   <g>
     <rect x="286" y="340" width="184" height="46" rx="23" fill="#E8F4EF"/>
     <text x="378" y="370" text-anchor="middle" fill="#2C6D64" font-family="Segoe UI, Arial, sans-serif" font-size="20" font-weight="600">Conversation first</text>
 
-    <rect x="486" y="340" width="186" height="46" rx="23" fill="#F6EBDD"/>
-    <text x="579" y="370" text-anchor="middle" fill="#7E5C39" font-family="Segoe UI, Arial, sans-serif" font-size="20" font-weight="600">Project cognition</text>
+    <rect x="486" y="340" width="208" height="46" rx="23" fill="#F6EBDD"/>
+    <text x="590" y="370" text-anchor="middle" fill="#7E5C39" font-family="Segoe UI, Arial, sans-serif" font-size="20" font-weight="600">Multi-thread memory</text>
 
-    <rect x="688" y="340" width="218" height="46" rx="23" fill="#EAF0FB"/>
-    <text x="797" y="370" text-anchor="middle" fill="#4060A0" font-family="Segoe UI, Arial, sans-serif" font-size="20" font-weight="600">VS Code / Codex bridge</text>
+    <rect x="710" y="340" width="224" height="46" rx="23" fill="#EAF0FB"/>
+    <text x="822" y="370" text-anchor="middle" fill="#4060A0" font-family="Segoe UI, Arial, sans-serif" font-size="20" font-weight="600">Project-line reasoning</text>
   </g>
 
-  <text x="286" y="446" fill="#5D676D" font-family="Segoe UI, Arial, sans-serif" font-size="22">WPF shell  •  OpenAI / Ollama  •  Permission-gated workspace reading</text>
+  <text x="286" y="446" fill="#5D676D" font-family="Segoe UI, Arial, sans-serif" font-size="22">WPF shell  •  OpenAI / Ollama  •  VS Code / Codex  •  Permission-gated workspace reading</text>
 
   <g transform="translate(830 136)">
     <rect x="0" y="0" width="210" height="112" rx="24" fill="#FFF9F3" stroke="#E9D8C7" stroke-width="2"/>
-    <text x="28" y="40" fill="#2A3A40" font-family="Segoe UI, Arial, sans-serif" font-size="20" font-weight="700">What is the next real step?</text>
-    <text x="28" y="72" fill="#627179" font-family="Segoe UI, Arial, sans-serif" font-size="18">I can untangle the list,</text>
-    <text x="28" y="96" fill="#627179" font-family="Segoe UI, Arial, sans-serif" font-size="18">then hand work to Codex.</text>
+    <text x="28" y="40" fill="#2A3A40" font-family="Segoe UI, Arial, sans-serif" font-size="20" font-weight="700">You have three active threads.</text>
+    <text x="28" y="72" fill="#627179" font-family="Segoe UI, Arial, sans-serif" font-size="18">I can sort them by project line,</text>
+    <text x="28" y="96" fill="#627179" font-family="Segoe UI, Arial, sans-serif" font-size="18">then hand one to Codex.</text>
     <path d="M118 112 L143 112 L129 132 Z" fill="#FFF9F3" stroke="#E9D8C7" stroke-width="2"/>
   </g>
 
@@ -74,5 +74,5 @@
     <rect x="82" y="250" width="108" height="30" rx="15" fill="#FFFFFF" opacity="0.8"/>
   </g>
 
-  <text x="284" y="520" fill="#88949A" font-family="Segoe UI, Arial, sans-serif" font-size="18">Open source repository prepared for GitHub, with WPF as the canonical runtime.</text>
+  <text x="284" y="520" fill="#88949A" font-family="Segoe UI, Arial, sans-serif" font-size="18">Open-source WPF-first desktop RA focused on understanding multiple active task mainlines.</text>
 </svg>
