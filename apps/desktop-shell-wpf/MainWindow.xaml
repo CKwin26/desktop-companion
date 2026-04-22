@@ -120,9 +120,41 @@
       </Setter>
     </Style>
 
-    <ContextMenu x:Key="PetSettingsMenu">
+    <ContextMenu x:Key="PetSettingsMenu"
+                 Opened="OnPetSettingsMenuOpened">
       <MenuItem Header="在 VS Code 打开最近项目"
                 Click="OnOpenRecentWorkspaceInVsCodeMenuClicked" />
+      <MenuItem Header="查看 Codex 后端"
+                Click="OnCodexBackendsMenuClicked" />
+      <Separator />
+      <MenuItem Header="人格内核">
+        <MenuItem Header="Julie Zhuo"
+                  Tag="balanced"
+                  IsCheckable="True"
+                  Click="OnKernelMenuClicked" />
+        <MenuItem Header="Andy Grove"
+                  Tag="operator"
+                  IsCheckable="True"
+                  Click="OnKernelMenuClicked" />
+        <MenuItem Header="Shreyas Doshi"
+                  Tag="research"
+                  IsCheckable="True"
+                  Click="OnKernelMenuClicked" />
+        <MenuItem Header="Cal Newport"
+                  Tag="focus"
+                  IsCheckable="True"
+                  Click="OnKernelMenuClicked" />
+        <MenuItem Header="David Allen"
+                  Tag="clarify"
+                  IsCheckable="True"
+                  Click="OnKernelMenuClicked" />
+        <MenuItem Header="你自己（本地蒸馏）"
+                  Tag="self"
+                  IsCheckable="True"
+                  Click="OnKernelMenuClicked" />
+      </MenuItem>
+      <MenuItem Header="查看当前人格"
+                Click="OnKernelSummaryMenuClicked" />
       <Separator />
       <MenuItem Header="权限设置"
                 Click="OnPermissionsMenuClicked" />

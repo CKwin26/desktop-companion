@@ -229,6 +229,46 @@ public partial class MainWindow : Window
         _ = Dispatcher.BeginInvoke(FocusInputBox);
     }
 
+    private void OnPetSettingsMenuOpened(object sender, RoutedEventArgs e)
+    {
+        if (sender is not ContextMenu contextMenu || DataContext is not MainWindowViewModel viewModel)
+        {
+            return;
+        }
+
+        var currentKernelId = viewModel.GetCurrentKernelId();
+        UpdateKernelMenuChecks(contextMenu.Items, currentKernelId);
+    }
+
+    private void OnKernelMenuClicked(object sender, RoutedEventArgs e)
+    {
+        if (DataContext is not MainWindowViewModel viewModel
+            || sender is not MenuItem menuItem
+            || menuItem.Tag is not string kernelId)
+        {
+            return;
+        }
+
+        viewModel.SwitchKernel(kernelId);
+        LogWindowMetrics($"menu:kernel:{kernelId}");
+        AnimateShell(viewModel.IsPanelOpen);
+    }
+
+    private void OnKernelSummaryMenuClicked(object sender, RoutedEventArgs e)
+    {
+        if (DataContext is not MainWindowViewModel viewModel)
+        {
+            return;
+        }
+
+        MessageBox.Show(
+            this,
+            viewModel.GetKernelSummary(),
+            "团子人格",
+            MessageBoxButton.OK,
+            MessageBoxImage.Information);
+    }
+
     private void OnOpenRecentWorkspaceInVsCodeMenuClicked(object sender, RoutedEventArgs e)
     {
         if (DataContext is not MainWindowViewModel viewModel)
@@ -240,6 +280,21 @@ public partial class MainWindow : Window
             this,
             viewModel.OpenLatestWorkspaceInVsCode(),
             "团子 × VS Code",
+            MessageBoxButton.OK,
+            MessageBoxImage.Information);
+    }
+
+    private void OnCodexBackendsMenuClicked(object sender, RoutedEventArgs e)
+    {
+        if (DataContext is not MainWindowViewModel viewModel)
+        {
+            return;
+        }
+
+        MessageBox.Show(
+            this,
+            viewModel.GetCodexBackendSummary(),
+            "Codex exec 后端",
             MessageBoxButton.OK,
             MessageBoxImage.Information);
     }
@@ -287,6 +342,27 @@ public partial class MainWindow : Window
     private void OnExitMenuClicked(object sender, RoutedEventArgs e)
     {
         Close();
+    }
+
+    private static void UpdateKernelMenuChecks(ItemCollection items, string currentKernelId)
+    {
+        foreach (var item in items)
+        {
+            if (item is not MenuItem menuItem)
+            {
+                continue;
+            }
+
+            if (menuItem.Tag is string kernelId)
+            {
+                menuItem.IsChecked = string.Equals(kernelId, currentKernelId, StringComparison.OrdinalIgnoreCase);
+            }
+
+            if (menuItem.HasItems)
+            {
+                UpdateKernelMenuChecks(menuItem.Items, currentKernelId);
+            }
+        }
     }
 
     private async void OnNaturalInputKeyDown(object sender, KeyEventArgs e)
@@ -430,6 +506,12 @@ public partial class MainWindow : Window
     {
         if (DataContext is not MainWindowViewModel viewModel || !viewModel.IsPanelOpen)
         {
+            return;
+        }
+
+        if (viewModel.IsAwaitingReply)
+        {
+            LogWindowMetrics($"{stage}:deferred-awaiting-reply");
             return;
         }
 

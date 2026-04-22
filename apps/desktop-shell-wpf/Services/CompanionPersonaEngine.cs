@@ -7,7 +7,8 @@ public sealed class CompanionPersonaEngine
 {
     public string BuildWelcomeMessage()
     {
-        return TuanziCognitionProfile.WelcomeMessage;
+        var kernel = CompanionKernelRuntime.Current;
+        return $"{TuanziCognitionProfile.WelcomeMessage} 当前内核是“{kernel.Label}”。";
     }
 
     public string ReplyToTaskIntent(
@@ -40,6 +41,7 @@ public sealed class CompanionPersonaEngine
         bool supervisionEnabled,
         bool focusSprintActive)
     {
+        var kernel = CompanionKernelRuntime.Current;
         var normalized = userInput.ToLowerInvariant();
         var topTask = orderedTasks.FirstOrDefault(task => task.State == CompanionTaskState.Doing)
             ?? orderedTasks.FirstOrDefault(task => task.State == CompanionTaskState.Todo)
@@ -47,7 +49,7 @@ public sealed class CompanionPersonaEngine
 
         if (ContainsAny(normalized, "你是谁", "你叫什么", "你是干嘛的"))
         {
-            return "我是团子，一个会陪你聊天、也会盯进度的桌面搭子。你不用把我当成冷冰冰的待办框，我更像坐在你旁边替你盯节奏的人。";
+            return $"我是团子，现在跑的是“{kernel.Label}”内核。{kernel.Summary}";
         }
 
         if (ContainsAny(normalized, "在吗", "陪我", "说说话", "聊聊"))
@@ -97,16 +99,24 @@ public sealed class CompanionPersonaEngine
 
     public string BuildReviewMessage(IReadOnlyList<CompanionTask> orderedTasks)
     {
+        var kernel = CompanionKernelRuntime.Current;
         var blockedTask = orderedTasks.FirstOrDefault(task => task.State == CompanionTaskState.Blocked);
         if (blockedTask is not null)
         {
-            return $"我回来梳理了。现在最该正面处理的是“{blockedTask.Title}”，别让它继续偷偷挂着。";
+            return kernel.Id switch
+            {
+                "operator" => $"我回来对线了。现在先处理“{blockedTask.Title}”，别让阻塞继续挂着。",
+                "focus" => $"先别散。现在只盯“{blockedTask.Title}”，把这个阻塞先松开。",
+                _ => $"我回来梳理了。现在最该正面处理的是“{blockedTask.Title}”，别让它继续偷偷挂着。"
+            };
         }
 
         var doingTask = orderedTasks.FirstOrDefault(task => task.State == CompanionTaskState.Doing);
         if (doingTask is not null)
         {
-            return $"我回来看看，你现在主线还是“{doingTask.Title}”。如果已经推进了，就直接告诉我，我帮你往下收口。";
+            return kernel.Id == "research"
+                ? $"我回来检查主线了。你现在还在推“{doingTask.Title}”，如果已经有新证据或结果，直接丢给我，我帮你收口。"
+                : $"我回来看看，你现在主线还是“{doingTask.Title}”。如果已经推进了，就直接告诉我，我帮你往下收口。";
         }
 
         var todoTask = orderedTasks.FirstOrDefault(task => task.State == CompanionTaskState.Todo);
@@ -120,7 +130,9 @@ public sealed class CompanionPersonaEngine
 
     public string BuildFocusSprintMessage(string topTask)
     {
-        return $"专注冲刺已经开始了。接下来 25 分钟，我就陪你盯“{topTask}”，别的先一律靠后。";
+        return CompanionKernelRuntime.Current.Id == "focus"
+            ? $"专注模式已锁定。接下来 25 分钟只盯“{topTask}”，别的先不要进来。"
+            : $"专注冲刺已经开始了。接下来 25 分钟，我就陪你盯“{topTask}”，别的先一律靠后。";
     }
 
     public string BuildFocusSprintFinishedMessage(IReadOnlyList<CompanionTask> orderedTasks)

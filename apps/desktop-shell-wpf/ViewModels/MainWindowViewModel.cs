@@ -5,6 +5,7 @@ using System.Runtime.CompilerServices;
 using System.Windows;
 using System.Windows.Media;
 using System.Windows.Threading;
+using DesktopCompanion.WpfHost.Cognition;
 using DesktopCompanion.WpfHost.Models;
 using DesktopCompanion.WpfHost.Services;
 
@@ -12,6 +13,7 @@ namespace DesktopCompanion.WpfHost.ViewModels;
 
 public sealed class MainWindowViewModel : INotifyPropertyChanged
 {
+    private static readonly TimeSpan ProviderProbeCacheDuration = TimeSpan.FromSeconds(30);
     private static readonly HashSet<string> SampleTaskTitles =
     [
         "把任务监督系统文档补一版",
@@ -33,6 +35,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     private readonly LocalProjectStore _projectStore;
     private readonly LocalWorkspaceSourceStore _workspaceSourceStore;
     private readonly LocalPermissionStore _permissionStore;
+    private readonly LocalCompanionKernelStore _companionKernelStore;
     private readonly LocalUserProfileStore _userProfileStore;
     private readonly LocalConversationStore _conversationStore;
     private readonly SimpleTaskIntentParser _intentParser;
@@ -40,6 +43,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     private readonly ProjectCognitionService _projectCognitionService;
     private readonly WorkspaceIngestionService _workspaceIngestionService;
     private readonly PersonalDistillationService _personalDistillationService;
+    private readonly LocalCodexThreadIndexService _localCodexThreadIndexService;
     private readonly VsCodeBridgeService _vsCodeBridgeService;
     private readonly OpenAiChatService _openAiChatService;
     private readonly OllamaChatService _ollamaChatService;
@@ -48,6 +52,9 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     private readonly TimeSpan _focusSprintDuration = TimeSpan.FromMinutes(25);
     private readonly CompanionPermissionProfile _permissionProfile;
     private DistilledUserProfile? _distilledUserProfile;
+    private ActiveAiProvider? _cachedProvider;
+    private DateTimeOffset _providerCacheValidUntil = DateTimeOffset.MinValue;
+    private string? _cachedProviderPreference;
 
     private DateTimeOffset _nextReviewAt;
     private DateTimeOffset? _focusSprintEndsAt;
@@ -77,6 +84,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             new LocalProjectStore(),
             new LocalWorkspaceSourceStore(),
             new LocalPermissionStore(),
+            new LocalCompanionKernelStore(),
             new LocalUserProfileStore(),
             new LocalConversationStore(),
             new SimpleTaskIntentParser(),
@@ -84,6 +92,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             new ProjectCognitionService(),
             new WorkspaceIngestionService(),
             new PersonalDistillationService(),
+            new LocalCodexThreadIndexService(),
             new VsCodeBridgeService(),
             new OpenAiChatService(),
             new OllamaChatService())
@@ -95,6 +104,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         LocalProjectStore projectStore,
         LocalWorkspaceSourceStore workspaceSourceStore,
         LocalPermissionStore permissionStore,
+        LocalCompanionKernelStore companionKernelStore,
         LocalUserProfileStore userProfileStore,
         LocalConversationStore conversationStore,
         SimpleTaskIntentParser intentParser,
@@ -102,6 +112,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         ProjectCognitionService projectCognitionService,
         WorkspaceIngestionService workspaceIngestionService,
         PersonalDistillationService personalDistillationService,
+        LocalCodexThreadIndexService localCodexThreadIndexService,
         VsCodeBridgeService vsCodeBridgeService,
         OpenAiChatService openAiChatService,
         OllamaChatService ollamaChatService)
@@ -110,6 +121,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         _projectStore = projectStore;
         _workspaceSourceStore = workspaceSourceStore;
         _permissionStore = permissionStore;
+        _companionKernelStore = companionKernelStore;
         _userProfileStore = userProfileStore;
         _conversationStore = conversationStore;
         _intentParser = intentParser;
@@ -117,10 +129,12 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         _projectCognitionService = projectCognitionService;
         _workspaceIngestionService = workspaceIngestionService;
         _personalDistillationService = personalDistillationService;
+        _localCodexThreadIndexService = localCodexThreadIndexService;
         _vsCodeBridgeService = vsCodeBridgeService;
         _openAiChatService = openAiChatService;
         _ollamaChatService = ollamaChatService;
         _permissionProfile = _permissionStore.LoadProfile();
+        CompanionKernelRuntime.SetCurrent(_companionKernelStore.LoadSelection().KernelId);
         _distilledUserProfile = _userProfileStore.LoadProfile();
 
         ConversationMessages = [];
@@ -353,7 +367,13 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         AddConversation(ConversationRole.User, input);
         ChatInput = string.Empty;
 
-        var provider = await ResolveActiveProviderAsync();
+        ActiveAiProvider? provider = null;
+        async Task<ActiveAiProvider> GetProviderAsync()
+        {
+            provider ??= await ResolveActiveProviderAsync();
+            return provider;
+        }
+
         string? taskFeedback = null;
         string fallbackReply;
 
@@ -384,13 +404,14 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             }
 
             IsAwaitingReply = true;
-            AiStatusLabel = $"{provider.Label} 蒸馏中";
+            AiStatusLabel = "AI 蒸馏中";
             WhisperLine = "团子在从你授权的私人资料里提炼隐私安全画像，只会保留长期风格和主线结构。";
             RefreshDashboard("团子在从你授权的私人资料里提炼隐私安全画像，只会保留长期风格和主线结构。");
 
             try
             {
-                var scan = _personalDistillationService.ScanSources(sourcePaths);
+                provider = await GetProviderAsync();
+                var scan = await Task.Run(() => _personalDistillationService.ScanSources(sourcePaths));
                 if (!scan.IsSuccess)
                 {
                     AiStatusLabel = provider.Label;
@@ -413,7 +434,8 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             catch
             {
                 const string failureReply = "这轮私人资料蒸馏没稳稳跑完。路径我看到了，但我宁可先停住，也不乱存你的原始信息。你可以先给我文本导出、总结文档，或者缩小到一两个目录重试。";
-                AiStatusLabel = $"{provider.Label} 暂时没接住";
+                InvalidateProviderCache();
+                AiStatusLabel = $"{provider?.Label ?? "AI"} 暂时没接住";
                 AddConversation(ConversationRole.Companion, failureReply);
                 RefreshDashboard(failureReply);
             }
@@ -427,7 +449,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
 
         if (LooksLikeVsCodeOpenRequest(input))
         {
-            if (!TryResolveWorkspaceForExternalTools(input, out var toolWorkspacePath))
+            if (!TryResolveWorkspaceForCodex(input, out var toolWorkspacePath))
             {
                 const string missingWorkspaceReply = "你先把项目路径发给我，或者先让我记住一个已授权项目目录，我再替你在 VS Code 里打开。";
                 AddConversation(ConversationRole.Companion, missingWorkspaceReply);
@@ -447,7 +469,16 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             return;
         }
 
-        if (LooksLikeCodexDispatchRequest(input))
+        if (LooksLikeCodexWorkspaceOverviewRequest(input))
+        {
+            var overview = _localCodexThreadIndexService.BuildOverview();
+            var overviewReply = BuildCodexWorkspaceOverviewReply(overview);
+            AddConversation(ConversationRole.Companion, overviewReply);
+            RefreshDashboard(overviewReply);
+            return;
+        }
+
+        if (LooksLikeCodexDispatchIntent(input))
         {
             if (!TryResolveWorkspaceForExternalTools(input, out var toolWorkspacePath))
             {
@@ -457,7 +488,8 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
                 return;
             }
 
-            var codexPrompt = ExtractCodexTaskPrompt(input);
+            var isCodexInspection = LooksLikeCodexStatusInspectionIntent(input);
+            var codexPrompt = BuildCodexTaskPrompt(input);
             if (string.IsNullOrWhiteSpace(codexPrompt))
             {
                 codexPrompt = "先阅读当前项目，然后告诉我这个项目现在最值得推进的下一步，并直接开始处理。";
@@ -470,8 +502,8 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
 
             try
             {
-                _vsCodeBridgeService.TryOpenWorkspace(toolWorkspacePath, out _);
-                using var timeoutCts = new CancellationTokenSource(TimeSpan.FromMinutes(2));
+                using var timeoutCts = new CancellationTokenSource(
+                    isCodexInspection ? TimeSpan.FromMinutes(5) : TimeSpan.FromMinutes(3));
                 var result = await _vsCodeBridgeService.RunCodexTaskAsync(toolWorkspacePath, codexPrompt, timeoutCts.Token);
                 var codexReply = result.IsSuccess
                     ? $"我已经把这件事交给 Codex 了。{result.Message}"
@@ -510,13 +542,14 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             }
 
             IsAwaitingReply = true;
-            AiStatusLabel = $"{provider.Label} 读文档中";
+            AiStatusLabel = "AI 读目录中";
             WhisperLine = "团子去翻你给我的项目目录了，我先把能读的资料捋出来。";
             RefreshDashboard("团子去翻你给我的项目目录了，我先把能读的资料捋出来。");
 
             try
             {
-                var scan = _workspaceIngestionService.ScanWorkspace(workspacePath);
+                provider = await GetProviderAsync();
+                var scan = await Task.Run(() => _workspaceIngestionService.ScanWorkspace(workspacePath));
                 if (!scan.IsSuccess)
                 {
                     AiStatusLabel = provider.Label;
@@ -559,7 +592,8 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             catch
             {
                 const string failureReply = "这个目录我去翻了，但这轮还没稳稳读出来。你可以先给我 README、总结文档，或者把更具体的子目录发我。";
-                AiStatusLabel = $"{provider.Label} 暂时没接住";
+                InvalidateProviderCache();
+                AiStatusLabel = $"{provider?.Label ?? "AI"} 暂时没接住";
                 AddConversation(ConversationRole.Companion, failureReply);
                 RefreshDashboard(failureReply);
             }
@@ -574,12 +608,13 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         if (_projectCognitionService.LooksLikeProjectDump(input))
         {
             IsAwaitingReply = true;
-            AiStatusLabel = $"{provider.Label} 归类中";
+            AiStatusLabel = "AI 归类中";
             WhisperLine = "团子在替你辨认这批事分别挂在哪条项目线上...";
             RefreshDashboard("团子在替你辨认这批事分别挂在哪条项目线上...");
 
             try
             {
+                provider = await GetProviderAsync();
                 var digest = await provider.AnalyzeProjectDumpAsync(
                                  input,
                                  GetOrderedProjects())
@@ -595,7 +630,8 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             }
             catch
             {
-                AiStatusLabel = $"{provider.Label} 暂时没接上";
+                InvalidateProviderCache();
+                AiStatusLabel = $"{provider?.Label ?? "AI"} 暂时没接上";
                 var digest = _projectCognitionService.CreateFallbackDigest(input, GetOrderedProjects());
                 _projectCognitionService.MergeDigestIntoProjects(_projects, digest);
                 PersistProjects();
@@ -637,13 +673,15 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         }
 
         IsAwaitingReply = true;
-        AiStatusLabel = $"{provider.Label} 思考中";
+        AiStatusLabel = "AI 连接中";
         WhisperLine = "团子在想怎么回你...";
         RefreshDashboard("团子在想怎么回你...");
 
         string reply;
         try
         {
+            provider = await GetProviderAsync();
+            AiStatusLabel = $"{provider.Label} 思考中";
             reply = await provider.GenerateReplyAsync(
                         _conversationHistory,
                         GetOrderedTasks(),
@@ -658,7 +696,8 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         }
         catch
         {
-            AiStatusLabel = $"{provider.Label} 暂时没接上";
+            InvalidateProviderCache();
+            AiStatusLabel = $"{provider?.Label ?? "AI"} 暂时没接上";
             reply = fallbackReply;
         }
         finally
@@ -769,6 +808,41 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         return "当前权限：只读你临时指定的项目目录，不长期记住路径。";
     }
 
+    public string GetCurrentKernelId()
+    {
+        return CompanionKernelRuntime.Current.Id;
+    }
+
+    public string GetKernelSummary()
+    {
+        var kernel = CompanionKernelRuntime.Current;
+        return $"当前人格内核：{kernel.Label}。{kernel.Summary}";
+    }
+
+    public void SwitchKernel(string kernelId)
+    {
+        var nextKernel = CompanionKernelCatalog.Resolve(kernelId);
+        if (nextKernel.Id == CompanionKernelRuntime.Current.Id)
+        {
+            var sameReply = $"现在已经是“{nextKernel.Label}”了。{nextKernel.Summary}";
+            AddConversation(ConversationRole.Companion, sameReply);
+            RefreshDashboard(sameReply);
+            return;
+        }
+
+        CompanionKernelRuntime.SetCurrent(nextKernel.Id);
+        _companionKernelStore.SaveSelection(new CompanionKernelSelection
+        {
+            KernelId = nextKernel.Id,
+            UpdatedAt = DateTimeOffset.Now
+        });
+        InvalidateProviderCache();
+
+        var reply = $"好，内核切到“{nextKernel.Label}”。{nextKernel.Summary}";
+        AddConversation(ConversationRole.Companion, reply);
+        RefreshDashboard(reply);
+    }
+
     public string OpenLatestWorkspaceInVsCode()
     {
         var workspacePath = _workspaceSources
@@ -784,6 +858,11 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         return _vsCodeBridgeService.TryOpenWorkspace(workspacePath, out var reply)
             ? reply
             : reply;
+    }
+
+    public string GetCodexBackendSummary()
+    {
+        return _vsCodeBridgeService.DescribeCodexBackends();
     }
 
     private async Task InitializeAiAsync()
@@ -814,55 +893,88 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     private async Task<ActiveAiProvider> ResolveActiveProviderAsync()
     {
         var preferredProvider = Environment.GetEnvironmentVariable("DESKTOP_COMPANION_AI_PROVIDER")?.Trim().ToLowerInvariant();
-        var openAiAvailability = await _openAiChatService.CheckAvailabilityAsync();
-        var ollamaAvailability = await _ollamaChatService.CheckAvailabilityAsync();
-
-        if (preferredProvider == "ollama" && ollamaAvailability.IsAvailable)
+        if (_cachedProvider is not null
+            && DateTimeOffset.Now < _providerCacheValidUntil
+            && string.Equals(_cachedProviderPreference, preferredProvider, StringComparison.Ordinal))
         {
-            return new ActiveAiProvider(
-                AiProviderKind.Ollama,
-                ollamaAvailability.StatusLabel,
-                _ollamaChatService.GenerateReplyAsync,
-                _ollamaChatService.AnalyzeProjectDumpAsync,
-                _ollamaChatService.AnalyzePersonalProfileAsync);
+            return _cachedProvider;
         }
+
+        var openAiAvailability = await _openAiChatService.CheckAvailabilityAsync();
 
         if (preferredProvider == "openai" && openAiAvailability.IsAvailable)
         {
-            return new ActiveAiProvider(
-                AiProviderKind.OpenAi,
-                openAiAvailability.StatusLabel,
-                _openAiChatService.GenerateReplyAsync,
-                _openAiChatService.AnalyzeProjectDumpAsync,
-                _openAiChatService.AnalyzePersonalProfileAsync);
+            return CacheResolvedProvider(BuildOpenAiProvider(openAiAvailability.StatusLabel), preferredProvider);
+        }
+
+        if (preferredProvider == "ollama")
+        {
+            var preferredOllamaAvailability = await _ollamaChatService.CheckAvailabilityAsync();
+            if (preferredOllamaAvailability.IsAvailable)
+            {
+                return CacheResolvedProvider(BuildOllamaProvider(preferredOllamaAvailability.StatusLabel), preferredProvider);
+            }
+
+            if (openAiAvailability.IsAvailable)
+            {
+                return CacheResolvedProvider(BuildOpenAiProvider(openAiAvailability.StatusLabel), preferredProvider);
+            }
+
+            return CacheResolvedProvider(BuildDisconnectedProvider(), preferredProvider);
         }
 
         if (openAiAvailability.IsAvailable)
         {
-            return new ActiveAiProvider(
-                AiProviderKind.OpenAi,
-                openAiAvailability.StatusLabel,
-                _openAiChatService.GenerateReplyAsync,
-                _openAiChatService.AnalyzeProjectDumpAsync,
-                _openAiChatService.AnalyzePersonalProfileAsync);
+            return CacheResolvedProvider(BuildOpenAiProvider(openAiAvailability.StatusLabel), preferredProvider);
         }
+
+        var ollamaAvailability = await _ollamaChatService.CheckAvailabilityAsync();
 
         if (ollamaAvailability.IsAvailable)
         {
-            return new ActiveAiProvider(
-                AiProviderKind.Ollama,
-                ollamaAvailability.StatusLabel,
-                _ollamaChatService.GenerateReplyAsync,
-                _ollamaChatService.AnalyzeProjectDumpAsync,
-                _ollamaChatService.AnalyzePersonalProfileAsync);
+            return CacheResolvedProvider(BuildOllamaProvider(ollamaAvailability.StatusLabel), preferredProvider);
         }
 
-        return new ActiveAiProvider(
+        return CacheResolvedProvider(BuildDisconnectedProvider(), preferredProvider);
+    }
+
+    private ActiveAiProvider BuildOpenAiProvider(string label) =>
+        new(
+            AiProviderKind.OpenAi,
+            label,
+            _openAiChatService.GenerateReplyAsync,
+            _openAiChatService.AnalyzeProjectDumpAsync,
+            _openAiChatService.AnalyzePersonalProfileAsync);
+
+    private ActiveAiProvider BuildOllamaProvider(string label) =>
+        new(
+            AiProviderKind.Ollama,
+            label,
+            _ollamaChatService.GenerateReplyAsync,
+            _ollamaChatService.AnalyzeProjectDumpAsync,
+            _ollamaChatService.AnalyzePersonalProfileAsync);
+
+    private static ActiveAiProvider BuildDisconnectedProvider() =>
+        new(
             AiProviderKind.None,
             "AI 未连接",
             (_, _, _, _, _, _, _, _) => Task.FromResult<string?>(null),
             (_, _, _) => Task.FromResult<ProjectCognitionDigest?>(null),
             (_, _) => Task.FromResult<DistilledUserProfile?>(null));
+
+    private ActiveAiProvider CacheResolvedProvider(ActiveAiProvider provider, string? preferredProvider)
+    {
+        _cachedProvider = provider;
+        _cachedProviderPreference = preferredProvider;
+        _providerCacheValidUntil = DateTimeOffset.Now.Add(ProviderProbeCacheDuration);
+        return provider;
+    }
+
+    private void InvalidateProviderCache()
+    {
+        _cachedProvider = null;
+        _cachedProviderPreference = null;
+        _providerCacheValidUntil = DateTimeOffset.MinValue;
     }
 
     private void HandleSupervisionTick()
@@ -1515,6 +1627,65 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         return $"Codex timed out, so I stopped that run first.\n{result.Message}";
     }
 
+    private static bool LooksLikeCodexWorkspaceOverviewRequest(string input)
+    {
+        if (string.IsNullOrWhiteSpace(input))
+        {
+            return false;
+        }
+
+        var normalized = input.ToLowerInvariant();
+        if (!normalized.Contains("codex"))
+        {
+            return false;
+        }
+
+        return ContainsAnyIgnoreCase(
+                   input,
+                   "\u591a\u5c11\u4e2a\u9879\u76ee",
+                   "\u591a\u5c11\u9879\u76ee",
+                   "\u51e0\u4e2a\u9879\u76ee",
+                   "\u6709\u4ec0\u4e48\u9879\u76ee",
+                   "\u6709\u4ec0\u4e48\u4efb\u52a1",
+                   "\u90fd\u5728\u505a\u4ec0\u4e48",
+                   "\u5728\u5e72\u4ec0\u4e48",
+                   "\u73b0\u5728\u5728\u505a\u4ec0\u4e48")
+               || normalized.Contains("go through")
+               || normalized.Contains("projects")
+               || normalized.Contains("project")
+               || normalized.Contains("tasks")
+               || normalized.Contains("what is codex doing")
+               || normalized.Contains("what's codex doing");
+    }
+
+    private static string BuildCodexWorkspaceOverviewReply(
+        LocalCodexThreadIndexService.CodexWorkspaceOverviewResult overview)
+    {
+        if (!overview.IsSuccess)
+        {
+            return overview.Message;
+        }
+
+        var lines = new List<string>
+        {
+            $"我这次是直接读你本机 Codex 的线程索引，不是再拿单个仓库硬猜。最近活跃的 Codex 项目大约有 {overview.TotalWorkspaceCount} 个。"
+        };
+
+        var rank = 1;
+        foreach (var workspace in overview.Workspaces)
+        {
+            var titlePart = workspace.RecentTitles.Count > 0
+                ? $"最近多在做“{string.Join(" / ", workspace.RecentTitles)}”"
+                : "最近主要是系统派发和巡检线程";
+
+            lines.Add($"{rank}. {workspace.Label}：最近 {workspace.ThreadCount} 条线程，{titlePart}");
+            rank++;
+        }
+
+        lines.Add("如果你要，我下一步可以继续点开其中一个项目，只看它最近几条线程在做什么。");
+        return string.Join("\n", lines);
+    }
+
     private static string BuildCodexSuccessReply(
         VsCodeBridgeService.CodexDispatchResult result,
         string workspacePath)
@@ -1632,6 +1803,171 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             .Trim();
 
         return prompt;
+    }
+
+    private bool LooksLikeCodexDispatchIntent(string input)
+    {
+        if (string.IsNullOrWhiteSpace(input))
+        {
+            return false;
+        }
+
+        var normalized = input.ToLowerInvariant();
+        if (!normalized.Contains("codex"))
+        {
+            return false;
+        }
+
+        if (ContainsAnyIgnoreCase(
+                input,
+                "\u4ea4\u7ed9",
+                "\u53bb\u505a",
+                "\u5904\u7406",
+                "\u6267\u884c",
+                "\u5e2e\u6211",
+                "\u770b\u4e00\u4e0b",
+                "\u770b\u770b",
+                "\u8bfb\u4e00\u4e0b",
+                "\u8bfb\u8bfb",
+                "\u8fc7\u4e00\u4e0b",
+                "\u8fc7\u4e00\u904d",
+                "\u6709\u4ec0\u4e48\u4efb\u52a1",
+                "\u5728\u505a\u4ec0\u4e48",
+                "\u73b0\u5728\u5728\u505a\u4ec0\u4e48",
+                "\u6539",
+                "\u4fee"))
+        {
+            return true;
+        }
+
+        return normalized.Contains("go through")
+               || normalized.Contains("check codex")
+               || normalized.Contains("inspect codex")
+               || normalized.Contains("read codex")
+               || normalized.Contains("status")
+               || normalized.Contains("task")
+               || normalized.Contains("tasks")
+               || normalized.Contains("doing")
+               || normalized.Contains("working on")
+               || normalized.Contains("what is codex doing")
+               || normalized.Contains("what's codex doing");
+    }
+
+    private bool TryResolveWorkspaceForCodex(string input, out string workspacePath)
+    {
+        if (_workspaceIngestionService.TryExtractWorkspacePath(input, out workspacePath))
+        {
+            return true;
+        }
+
+        workspacePath = _workspaceSources
+            .OrderByDescending(source => source.LastScannedAt)
+            .Select(source => source.Path)
+            .FirstOrDefault(path => !string.IsNullOrWhiteSpace(path))
+            ?? string.Empty;
+
+        if (!string.IsNullOrWhiteSpace(workspacePath))
+        {
+            return true;
+        }
+
+        return TryResolveAppRepositoryRoot(out workspacePath);
+    }
+
+    private static string BuildCodexTaskPrompt(string input)
+    {
+        if (LooksLikeCodexStatusInspectionIntent(input))
+        {
+            return "Read the current workspace and summarize the active workstreams in this repository. " +
+                   "For each active thread, state what it appears to be doing now, the likely blocker or risk, " +
+                   "and the best next step. Cite concrete file or path evidence when possible. Keep it concise.";
+        }
+
+        var prompt = input
+            .Replace("\u5728 VS Code \u91cc", string.Empty, StringComparison.OrdinalIgnoreCase)
+            .Replace("\u5728VS Code\u91cc", string.Empty, StringComparison.OrdinalIgnoreCase)
+            .Replace("\u5728 vscode \u91cc", string.Empty, StringComparison.OrdinalIgnoreCase)
+            .Replace("\u5728vscode\u91cc", string.Empty, StringComparison.OrdinalIgnoreCase)
+            .Replace("\u7528 Codex", string.Empty, StringComparison.OrdinalIgnoreCase)
+            .Replace("\u7528 codex", string.Empty, StringComparison.OrdinalIgnoreCase)
+            .Replace("\u4ea4\u7ed9 Codex \u53bb\u505a", string.Empty, StringComparison.OrdinalIgnoreCase)
+            .Replace("\u4ea4\u7ed9 codex \u53bb\u505a", string.Empty, StringComparison.OrdinalIgnoreCase)
+            .Replace("\u4ea4\u7ed9 Codex", string.Empty, StringComparison.OrdinalIgnoreCase)
+            .Replace("\u4ea4\u7ed9 codex", string.Empty, StringComparison.OrdinalIgnoreCase)
+            .Replace("\u8ba9 Codex", string.Empty, StringComparison.OrdinalIgnoreCase)
+            .Replace("\u8ba9 codex", string.Empty, StringComparison.OrdinalIgnoreCase)
+            .Replace("\u5e2e\u6211", string.Empty, StringComparison.OrdinalIgnoreCase)
+            .Replace("\u5904\u7406", string.Empty, StringComparison.OrdinalIgnoreCase)
+            .Replace("\u6267\u884c", string.Empty, StringComparison.OrdinalIgnoreCase)
+            .Replace("\u770b\u4e00\u4e0b", string.Empty, StringComparison.OrdinalIgnoreCase)
+            .Replace("\u770b\u770b", string.Empty, StringComparison.OrdinalIgnoreCase)
+            .Replace("\u8bfb\u4e00\u4e0b", string.Empty, StringComparison.OrdinalIgnoreCase)
+            .Replace("\u8bfb\u8bfb", string.Empty, StringComparison.OrdinalIgnoreCase)
+            .Replace("\u8fc7\u4e00\u4e0b", string.Empty, StringComparison.OrdinalIgnoreCase)
+            .Replace("\u8fc7\u4e00\u904d", string.Empty, StringComparison.OrdinalIgnoreCase)
+            .Replace("codex", string.Empty, StringComparison.OrdinalIgnoreCase)
+            .Replace("\uff1a", " ", StringComparison.OrdinalIgnoreCase)
+            .Replace(":", " ", StringComparison.OrdinalIgnoreCase)
+            .Trim();
+
+        return prompt;
+    }
+
+    private static bool LooksLikeCodexStatusInspectionIntent(string input)
+    {
+        if (string.IsNullOrWhiteSpace(input))
+        {
+            return false;
+        }
+
+        var normalized = input.ToLowerInvariant();
+        if (!normalized.Contains("codex"))
+        {
+            return false;
+        }
+
+        return ContainsAnyIgnoreCase(
+                   input,
+                   "\u770b\u4e00\u4e0b",
+                   "\u770b\u770b",
+                   "\u8bfb\u4e00\u4e0b",
+                   "\u8bfb\u8bfb",
+                   "\u8fc7\u4e00\u4e0b",
+                   "\u8fc7\u4e00\u904d",
+                   "\u6709\u4ec0\u4e48\u4efb\u52a1",
+                   "\u5728\u505a\u4ec0\u4e48",
+                   "\u73b0\u5728\u5728\u505a\u4ec0\u4e48")
+               || normalized.Contains("go through")
+               || normalized.Contains("status")
+               || normalized.Contains("task")
+               || normalized.Contains("tasks")
+               || normalized.Contains("doing")
+               || normalized.Contains("working on");
+    }
+
+    private static bool ContainsAnyIgnoreCase(string input, params string[] candidates)
+    {
+        return candidates.Any(candidate => input.Contains(candidate, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static bool TryResolveAppRepositoryRoot(out string workspacePath)
+    {
+        var current = new DirectoryInfo(AppContext.BaseDirectory);
+        while (current is not null)
+        {
+            var hasGit = Directory.Exists(Path.Combine(current.FullName, ".git"));
+            var hasSolution = File.Exists(Path.Combine(current.FullName, "DesktopCompanion.Windows.sln"));
+            if (hasGit || hasSolution)
+            {
+                workspacePath = current.FullName;
+                return true;
+            }
+
+            current = current.Parent;
+        }
+
+        workspacePath = string.Empty;
+        return false;
     }
 
     private void UpsertWorkspaceSource(WorkspaceIngestionService.WorkspaceScanResult scan)

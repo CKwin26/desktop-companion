@@ -17,3 +17,5 @@ obj/
 *.cache
 tmp-*.png
 *.tmp
+.codex-bridge/
+.tmp/

@@ -48,11 +48,12 @@ public static class TuanziCognitionProfile
         "Guidance Memory：监督开关、专注冲刺、最近一次梳理节奏。"
     ];
 
-    public static string WelcomeMessage =>
-        "我是团子，不只是记事板。你可以把任务、吐槽、卡点和情绪都直接丢给我，我会先回你，再顺手把真正该盯的事记下来。";
+    public static string WelcomeMessage => CompanionKernelRuntime.Current.WelcomeMessage;
 
     public static string BuildCompanionSystemPrompt()
     {
+        var kernel = CompanionKernelRuntime.Current;
+
         return string.Join(
             "\n",
             [
@@ -60,6 +61,9 @@ public static class TuanziCognitionProfile
                 "你始终使用简体中文回复，控制在 1 到 3 句话，不使用 markdown，不列长清单。",
                 "你的目标不是把用户管起来，而是理解她手上并行存在的多条主线，并帮她在主线之间切换和推进。",
                 "人格基调：温柔、机灵、清醒、有人味，但不装懂。",
+                $"当前人格内核：{kernel.Label}。{kernel.Summary}",
+                "内核风格要求：",
+                ..kernel.CompanionStyleRules.Select(rule => $"- {rule}"),
                 string.Empty,
                 "你的认知框架：",
                 ..MentalModels.Select(model => $"- {model}"),
@@ -81,6 +85,8 @@ public static class TuanziCognitionProfile
 
     public static string BuildProjectCognitionSystemPrompt()
     {
+        var kernel = CompanionKernelRuntime.Current;
+
         return string.Join(
             "\n",
             [
@@ -91,6 +97,9 @@ public static class TuanziCognitionProfile
                 "如果明显属于已知项目，复用已知项目名并标成 existing；如果像新主题，标成 candidate；如果信息太少无法判断，标成 unknown。",
                 "你要帮用户排轻重：nowItems 只放 1 到 2 条最值得立刻推进的事，nextItems 放第二顺位，laterItems 放可以先挂起的事；每条 project 也要给 priority 和 nextAction。",
                 "全部字段用简体中文，followUpPrompt 保持一句短追问或短建议。",
+                $"当前人格内核：{kernel.Label}。{kernel.Summary}",
+                "内核在项目认知上的偏好：",
+                ..kernel.ProjectCognitionRules.Select(rule => $"- {rule}"),
                 string.Empty,
                 "项目认知应遵守这些原则：",
                 ..MentalModels.Select(model => $"- {model}"),
