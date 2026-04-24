@@ -14,7 +14,12 @@ namespace DesktopCompanion.WpfHost;
 
 public partial class MainWindow : Window
 {
-    private const double HostWidth = 540;
+    private const double HostWidth = 596;
+    private const double HostHeight = 540;
+    private const double ReplyBubbleMinWidth = 216;
+    private const double ReplyBubbleMaxWidth = 292;
+    private const double ReplyBubbleMinHeight = 104;
+    private const double ReplyBubbleMaxHeight = 164;
     private static readonly string DiagnosticLogPath = Path.Combine(
         AppContext.BaseDirectory,
         "window-diagnostics.log");
@@ -36,9 +41,9 @@ public partial class MainWindow : Window
         LogWindowMetrics("loaded:before-layout");
         var isOpen = (DataContext as MainWindowViewModel)?.IsPanelOpen ?? false;
         Width = HostWidth;
-        Height = 470;
+        Height = HostHeight;
         MinWidth = HostWidth;
-        MinHeight = Height;
+        MinHeight = HostHeight;
         WindowPlacementService.SnapToBottomRight(this);
         ApplyPanelVisualState(animated: false);
 
@@ -419,7 +424,7 @@ public partial class MainWindow : Window
 
         _ = animated;
         var opacityTarget = viewModel.IsPanelOpen ? 1d : 0d;
-        var xTarget = viewModel.IsPanelOpen ? 0d : -24d;
+        var xTarget = viewModel.IsPanelOpen ? 0d : -12d;
 
         TaskPanel.IsHitTestVisible = viewModel.IsPanelOpen;
         ComposerBubble.IsHitTestVisible = viewModel.IsPanelOpen;
@@ -454,7 +459,8 @@ public partial class MainWindow : Window
                 || source is ScrollBar
                 || source is Slider
                 || source is ComboBox
-                || source is ListBoxItem)
+                || source is ListBoxItem
+                || source is Thumb)
             {
                 return true;
             }
@@ -500,6 +506,25 @@ public partial class MainWindow : Window
     private void OnWindowSizeChanged(object sender, SizeChangedEventArgs e)
     {
         LogWindowMetrics($"size-changed:{e.NewSize.Width:0.##}x{e.NewSize.Height:0.##}");
+    }
+
+    private void OnReplyBubbleResizeDragDelta(object sender, DragDeltaEventArgs e)
+    {
+        var previousHeight = ReplyBubble.Height;
+        var nextWidth = Math.Clamp(ReplyBubble.Width + e.HorizontalChange, ReplyBubbleMinWidth, ReplyBubbleMaxWidth);
+        var nextHeight = Math.Clamp(ReplyBubble.Height - e.VerticalChange, ReplyBubbleMinHeight, ReplyBubbleMaxHeight);
+        var deltaHeight = nextHeight - previousHeight;
+
+        ReplyBubble.Width = nextWidth;
+        ReplyBubble.Height = nextHeight;
+        ReplyBubbleHost.Width = nextWidth;
+
+        var currentTop = Canvas.GetTop(ReplyBubbleHost);
+        var nextTop = Math.Clamp(currentTop - deltaHeight, 0d, 96d);
+        Canvas.SetTop(ReplyBubbleHost, nextTop);
+
+        e.Handled = true;
+        LogWindowMetrics($"reply-bubble:resize:{nextWidth:0.#}x{nextHeight:0.#}@top={nextTop:0.#}");
     }
 
     private void ClosePanelIfOpen(string stage)

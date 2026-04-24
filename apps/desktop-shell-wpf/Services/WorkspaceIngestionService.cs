@@ -11,15 +11,24 @@ public sealed class WorkspaceIngestionService
         @"(?:""(?<path>[A-Za-z]:\\[^""]+)""|(?<path>[A-Za-z]:\\[^\r\n]+))",
         RegexOptions.Compiled);
 
+    private static readonly Regex DesktopSubpathRegex = new(
+        @"(?:(?:~|%USERPROFILE%)[/\\]Desktop|Desktop|桌面)[/\\](?<tail>[^""'\s，。；;,]+)",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
     private static readonly string[] SupportedExtensions =
     [
         ".md",
         ".txt",
         ".json",
+        ".toml",
         ".csv",
         ".yaml",
         ".yml",
         ".docx",
+        ".sln",
+        ".csproj",
+        ".fsproj",
+        ".vbproj",
         ".cs",
         ".py",
         ".ts",
@@ -49,6 +58,56 @@ public sealed class WorkspaceIngestionService
         "cv"
     ];
 
+    private static readonly string[] StructuralFileNames =
+    [
+        "Program.cs",
+        "App.xaml",
+        "MainWindow.xaml",
+        "Startup.cs",
+        "package.json",
+        "pyproject.toml",
+        "requirements.txt",
+        "Cargo.toml",
+        "go.mod",
+        "pom.xml",
+        "CMakeLists.txt"
+    ];
+
+    private static readonly string[] StructuralPathTokens =
+    [
+        "services",
+        "viewmodels",
+        "views",
+        "controllers",
+        "routes",
+        "api",
+        "backend",
+        "frontend",
+        "pages",
+        "components",
+        "src",
+        "tests",
+        "test"
+    ];
+
+    private static readonly string[] DesktopAliasHints =
+    [
+        "桌面文件",
+        "桌面资料",
+        "桌面目录",
+        "桌面文件夹",
+        "桌面上的",
+        "桌面上",
+        "桌面里",
+        "桌面内容",
+        "desktop files",
+        "desktop file",
+        "desktop folder",
+        "desktop directory",
+        "on desktop",
+        "from desktop"
+    ];
+
     public bool TryExtractWorkspacePath(string input, out string workspacePath)
     {
         workspacePath = string.Empty;
@@ -65,6 +124,19 @@ public sealed class WorkspaceIngestionService
             {
                 return true;
             }
+        }
+
+        foreach (var candidatePath in BuildDesktopSubpathCandidates(input))
+        {
+            if (TryResolveWorkspacePath(candidatePath, out workspacePath))
+            {
+                return true;
+            }
+        }
+
+        if (TryResolveDesktopAlias(input, out workspacePath))
+        {
+            return true;
         }
 
         return false;
@@ -84,7 +156,7 @@ public sealed class WorkspaceIngestionService
 
         if (allFiles.Count == 0)
         {
-            return WorkspaceScanResult.Failure("这个目录里我暂时没找到我能读的文档。先给我一个包含 README、总结或说明文档的文件夹会更稳。");
+            return WorkspaceScanResult.Failure("这个目录里我暂时没找到我能读的资料或代码骨架。你给我一个项目目录、代码目录，或带 README 的目录都可以。");
         }
 
         var selectedFiles = allFiles
@@ -124,7 +196,7 @@ public sealed class WorkspaceIngestionService
 
         if (documents.Count == 0)
         {
-            return WorkspaceScanResult.Failure("这个目录里的文档我扫到了，但还没抽出稳定可读的内容。你可以先给我 README 或总结文档所在目录。");
+            return WorkspaceScanResult.Failure("这个目录我扫到了，但这轮还没抽出稳定可读的文档或代码片段。你可以先给我更靠近入口文件、主代码目录或 README 的那一层。");
         }
 
         var rootLabel = Path.GetFileName(resolvedPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
@@ -144,6 +216,42 @@ public sealed class WorkspaceIngestionService
             ]);
 
         return WorkspaceScanResult.Success(resolvedPath, rootLabel, documents, analysisInput);
+    }
+
+    public DirectorySurfaceResult DescribeDirectorySurface(string workspacePath)
+    {
+        if (!TryResolveWorkspacePath(workspacePath, out var resolvedPath))
+        {
+            return DirectorySurfaceResult.Failure("这个目录我没找到，你把完整路径再发我一次。");
+        }
+
+        var visibleEntries = SafeEnumerateVisibleTopLevelEntries(resolvedPath).ToList();
+        var directories = visibleEntries
+            .Where(Directory.Exists)
+            .Select(GetSurfaceEntryLabel)
+            .Where(name => !string.IsNullOrWhiteSpace(name))
+            .Cast<string>()
+            .ToList();
+
+        var files = visibleEntries
+            .Where(File.Exists)
+            .Select(GetSurfaceEntryLabel)
+            .Where(name => !string.IsNullOrWhiteSpace(name))
+            .Cast<string>()
+            .ToList();
+
+        if (directories.Count == 0 && files.Count == 0)
+        {
+            return DirectorySurfaceResult.Failure("这个目录我看到了，但顶层暂时没扫到明显可见的文件或文件夹。");
+        }
+
+        var rootLabel = Path.GetFileName(resolvedPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+        if (string.IsNullOrWhiteSpace(rootLabel))
+        {
+            rootLabel = resolvedPath;
+        }
+
+        return DirectorySurfaceResult.Success(resolvedPath, rootLabel, directories, files);
     }
 
     private static bool TryResolveWorkspacePath(string rawPath, out string resolvedPath)
@@ -168,6 +276,93 @@ public sealed class WorkspaceIngestionService
         catch
         {
             return false;
+        }
+    }
+
+    private static bool TryResolveDesktopAlias(string input, out string workspacePath)
+    {
+        workspacePath = string.Empty;
+        if (string.IsNullOrWhiteSpace(input))
+        {
+            return false;
+        }
+
+        var mentionsDesktop = input.Contains("桌面", StringComparison.OrdinalIgnoreCase)
+                              || input.Contains("desktop", StringComparison.OrdinalIgnoreCase);
+
+        if (!mentionsDesktop)
+        {
+            return false;
+        }
+
+        var looksLikeDesktopDataRequest = DesktopAliasHints.Any(hint =>
+                input.Contains(hint, StringComparison.OrdinalIgnoreCase))
+            || ContainsAnyIgnoreCase(
+                input,
+                "看看",
+                "看一下",
+                "看一眼",
+                "读一下",
+                "读读",
+                "翻一下",
+                "扫一眼",
+                "列一下",
+                "列出",
+                "有什么",
+                "有哪些",
+                "文件",
+                "文件夹",
+                "目录",
+                "资料",
+                "内容");
+
+        if (!looksLikeDesktopDataRequest)
+        {
+            return false;
+        }
+
+        var desktopPath = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
+        if (TryResolveWorkspacePath(desktopPath, out workspacePath))
+        {
+            return true;
+        }
+
+        var fallbackDesktopPath = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+            "Desktop");
+
+        return TryResolveWorkspacePath(fallbackDesktopPath, out workspacePath);
+    }
+
+    private static IEnumerable<string> BuildDesktopSubpathCandidates(string input)
+    {
+        foreach (Match match in DesktopSubpathRegex.Matches(input))
+        {
+            var tail = match.Groups["tail"].Value.Trim().TrimEnd('.', '。', ',', '，', ';', '；', ')', '）');
+            if (string.IsNullOrWhiteSpace(tail))
+            {
+                continue;
+            }
+
+            foreach (var desktopPath in GetDesktopPathCandidates())
+            {
+                yield return Path.Combine(desktopPath, tail.Replace('/', Path.DirectorySeparatorChar));
+            }
+        }
+    }
+
+    private static IEnumerable<string> GetDesktopPathCandidates()
+    {
+        var desktopPath = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
+        if (!string.IsNullOrWhiteSpace(desktopPath))
+        {
+            yield return desktopPath;
+        }
+
+        var userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        if (!string.IsNullOrWhiteSpace(userProfile))
+        {
+            yield return Path.Combine(userProfile, "Desktop");
         }
     }
 
@@ -244,6 +439,22 @@ public sealed class WorkspaceIngestionService
         }
     }
 
+    private static IEnumerable<string> SafeEnumerateVisibleTopLevelEntries(string rootPath)
+    {
+        try
+        {
+            return Directory.EnumerateFileSystemEntries(rootPath)
+                .Where(path => !IsHiddenOrSystemEntry(path))
+                .OrderBy(path => Directory.Exists(path) ? 0 : 1)
+                .ThenBy(path => Path.GetFileName(path), StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+        catch
+        {
+            return [];
+        }
+    }
+
     private static bool IsIgnoredPath(string path)
     {
         return path.Contains($"{Path.DirectorySeparatorChar}.git{Path.DirectorySeparatorChar}", StringComparison.OrdinalIgnoreCase)
@@ -252,6 +463,48 @@ public sealed class WorkspaceIngestionService
                || path.Contains($"{Path.DirectorySeparatorChar}node_modules{Path.DirectorySeparatorChar}", StringComparison.OrdinalIgnoreCase)
                || path.Contains($"{Path.DirectorySeparatorChar}.venv{Path.DirectorySeparatorChar}", StringComparison.OrdinalIgnoreCase)
                || path.Contains($"{Path.DirectorySeparatorChar}venv{Path.DirectorySeparatorChar}", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsHiddenOrSystemEntry(string path)
+    {
+        var name = Path.GetFileName(path);
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            return true;
+        }
+
+        if (string.Equals(name, "desktop.ini", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        try
+        {
+            var attributes = File.GetAttributes(path);
+            return (attributes & FileAttributes.Hidden) != 0
+                   || (attributes & FileAttributes.System) != 0;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static string GetSurfaceEntryLabel(string path)
+    {
+        var extension = Path.GetExtension(path);
+        if (extension.Equals(".lnk", StringComparison.OrdinalIgnoreCase)
+            || extension.Equals(".url", StringComparison.OrdinalIgnoreCase))
+        {
+            return Path.GetFileNameWithoutExtension(path);
+        }
+
+        return Path.GetFileName(path);
+    }
+
+    private static bool ContainsAnyIgnoreCase(string input, params string[] candidates)
+    {
+        return candidates.Any(candidate => input.Contains(candidate, StringComparison.OrdinalIgnoreCase));
     }
 
     private static int ScoreFile(string filePath, string rootPath)
@@ -275,11 +528,39 @@ public sealed class WorkspaceIngestionService
             }
         }
 
+        if (StructuralFileNames.Contains(Path.GetFileName(filePath), StringComparer.OrdinalIgnoreCase))
+        {
+            score += 36;
+        }
+
+        if (extension.Equals(".sln", StringComparison.OrdinalIgnoreCase)
+            || extension.Equals(".csproj", StringComparison.OrdinalIgnoreCase)
+            || extension.Equals(".fsproj", StringComparison.OrdinalIgnoreCase)
+            || extension.Equals(".vbproj", StringComparison.OrdinalIgnoreCase)
+            || extension.Equals(".toml", StringComparison.OrdinalIgnoreCase))
+        {
+            score += 26;
+        }
+
+        if (StructuralPathTokens.Any(token =>
+                relativePath.Contains(token, StringComparison.OrdinalIgnoreCase)))
+        {
+            score += 12;
+        }
+
+        if (depth <= 1)
+        {
+            score += 8;
+        }
+
         score += extension.ToLowerInvariant() switch
         {
             ".md" => 24,
             ".docx" => 20,
             ".txt" => 16,
+            ".sln" => 20,
+            ".csproj" => 18,
+            ".toml" => 14,
             ".json" => 10,
             ".csv" => 8,
             _ => 4
@@ -380,5 +661,24 @@ public sealed class WorkspaceIngestionService
             IReadOnlyList<WorkspaceDocumentSnippet> documents,
             string analysisInput) =>
             new(true, string.Empty, rootPath, rootLabel, documents, analysisInput);
+    }
+
+    public sealed record DirectorySurfaceResult(
+        bool IsSuccess,
+        string Message,
+        string RootPath,
+        string RootLabel,
+        IReadOnlyList<string> Directories,
+        IReadOnlyList<string> Files)
+    {
+        public static DirectorySurfaceResult Failure(string message) =>
+            new(false, message, string.Empty, string.Empty, [], []);
+
+        public static DirectorySurfaceResult Success(
+            string rootPath,
+            string rootLabel,
+            IReadOnlyList<string> directories,
+            IReadOnlyList<string> files) =>
+            new(true, string.Empty, rootPath, rootLabel, directories, files);
     }
 }

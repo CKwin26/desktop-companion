@@ -57,6 +57,7 @@ public sealed class OpenAiChatService
         IReadOnlyList<ProjectMemory> knownProjects,
         string userInput,
         string? taskFeedback,
+        string? activeWorkspaceContext,
         bool supervisionEnabled,
         bool focusSprintActive,
         CancellationToken cancellationToken = default)
@@ -73,7 +74,7 @@ public sealed class OpenAiChatService
         {
             Model = ModelName,
             Instructions = TuanziCognitionProfile.BuildCompanionSystemPrompt(),
-            Input = BuildInput(conversationHistory, orderedTasks, knownProjects, userInput, taskFeedback, supervisionEnabled, focusSprintActive)
+            Input = BuildInput(conversationHistory, orderedTasks, knownProjects, userInput, taskFeedback, activeWorkspaceContext, supervisionEnabled, focusSprintActive)
         };
 
         request.Content = new StringContent(
@@ -184,6 +185,7 @@ public sealed class OpenAiChatService
         IReadOnlyList<ProjectMemory> knownProjects,
         string userInput,
         string? taskFeedback,
+        string? activeWorkspaceContext,
         bool supervisionEnabled,
         bool focusSprintActive)
     {
@@ -220,6 +222,7 @@ public sealed class OpenAiChatService
         return
             $"已记录任务：{taskLines}\n" +
             $"已知项目线：{projectLines}\n" +
+            $"{(string.IsNullOrWhiteSpace(activeWorkspaceContext) ? "当前没有活跃工作区上下文。" : activeWorkspaceContext)}\n" +
             $"{taskFeedbackLine}\n" +
             $"{supervisionLine}{sprintLine}\n" +
             $"最近对话：\n{string.Join("\n", historyLines)}\n" +

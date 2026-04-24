@@ -6,22 +6,23 @@
         xmlns:controls="clr-namespace:DesktopCompanion.WpfHost.Controls"
         mc:Ignorable="d"
         Title="Desktop Companion Pet"
-        Width="540"
-        Height="470"
+        Width="596"
+        Height="540"
         WindowStyle="None"
         ResizeMode="NoResize"
         AllowsTransparency="True"
         Background="Transparent"
         ShowInTaskbar="False"
         Topmost="True"
+        FontFamily="Microsoft YaHei UI"
         Loaded="OnLoaded">
   <Window.Resources>
     <DropShadowEffect x:Key="BubbleShadow"
-                      BlurRadius="30"
+                      BlurRadius="24"
                       Direction="270"
-                      ShadowDepth="10"
-                      Opacity="0.24"
-                      Color="#3322363B" />
+                      ShadowDepth="8"
+                      Opacity="0.18"
+                      Color="#2E22363B" />
 
     <Style x:Key="GhostButtonStyle" TargetType="Button">
       <Setter Property="Background" Value="#1022363B" />
@@ -29,15 +30,17 @@
       <Setter Property="BorderThickness" Value="0" />
       <Setter Property="Padding" Value="10,6" />
       <Setter Property="Cursor" Value="Hand" />
-      <Setter Property="FontSize" Value="12" />
+      <Setter Property="FontSize" Value="13" />
       <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="HorizontalContentAlignment" Value="Center" />
+      <Setter Property="VerticalContentAlignment" Value="Center" />
       <Setter Property="Template">
         <Setter.Value>
           <ControlTemplate TargetType="Button">
             <Border Background="{TemplateBinding Background}"
-                    CornerRadius="999">
-              <ContentPresenter HorizontalAlignment="Center"
-                                VerticalAlignment="Center"
+                    CornerRadius="18">
+              <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
                                 Margin="{TemplateBinding Padding}" />
             </Border>
           </ControlTemplate>
@@ -95,13 +98,14 @@
     <Style x:Key="SuggestionBubbleButtonStyle"
            TargetType="Button"
            BasedOn="{StaticResource GhostButtonStyle}">
-      <Setter Property="Background" Value="#FFF8F3EA" />
+      <Setter Property="Background" Value="#FFFDF9F4" />
       <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
       <Setter Property="Padding" Value="14,10" />
       <Setter Property="Margin" Value="0,0,0,8" />
-      <Setter Property="Width" Value="212" />
+      <Setter Property="Width" Value="160" />
       <Setter Property="HorizontalAlignment" Value="Left" />
-      <Setter Property="BorderBrush" Value="#2279B5AA" />
+      <Setter Property="HorizontalContentAlignment" Value="Left" />
+      <Setter Property="BorderBrush" Value="#1679B5AA" />
       <Setter Property="BorderThickness" Value="1" />
       <Setter Property="Template">
         <Setter.Value>
@@ -109,10 +113,9 @@
             <Border Background="{TemplateBinding Background}"
                     BorderBrush="{TemplateBinding BorderBrush}"
                     BorderThickness="{TemplateBinding BorderThickness}"
-                    CornerRadius="999"
-                    Effect="{StaticResource BubbleShadow}">
-              <ContentPresenter HorizontalAlignment="Center"
-                                VerticalAlignment="Center"
+                    CornerRadius="16">
+              <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
                                 Margin="{TemplateBinding Padding}" />
             </Border>
           </ControlTemplate>
@@ -174,135 +177,153 @@
   <Grid PreviewMouseLeftButtonDown="OnDragSurfaceMouseLeftButtonDown"
         PreviewMouseMove="OnDragSurfaceMouseMove"
         PreviewMouseLeftButtonUp="OnDragSurfaceMouseLeftButtonUp">
-    <Grid Width="540"
-          Height="470"
+    <Grid Width="596"
+          Height="540"
           HorizontalAlignment="Right">
-      <Grid.ColumnDefinitions>
-        <ColumnDefinition Width="248" />
-        <ColumnDefinition Width="292" />
-      </Grid.ColumnDefinitions>
+      <Canvas Width="596"
+              Height="540"
+              HorizontalAlignment="Right"
+              VerticalAlignment="Top">
+        <Grid x:Name="TaskPanel"
+              Width="160"
+              Canvas.Left="102"
+              Canvas.Top="196"
+              Visibility="Hidden"
+              Opacity="0"
+              IsHitTestVisible="False">
+          <Grid.RenderTransform>
+            <TranslateTransform x:Name="TaskPanelTransform" X="-12" />
+          </Grid.RenderTransform>
 
-      <Grid x:Name="TaskPanel"
-            Grid.Column="0"
-            Width="220"
-            HorizontalAlignment="Right"
-            VerticalAlignment="Top"
-            Margin="0,166,-74,0"
-            Visibility="Hidden"
-            Opacity="0"
-            IsHitTestVisible="False">
-        <Grid.RenderTransform>
-          <TranslateTransform x:Name="TaskPanelTransform" X="-24" />
-        </Grid.RenderTransform>
+          <StackPanel Width="160"
+                      VerticalAlignment="Top">
+            <ItemsControl ItemsSource="{Binding SuggestionBubbles}">
+              <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate>
+                  <StackPanel />
+                </ItemsPanelTemplate>
+              </ItemsControl.ItemsPanel>
+              <ItemsControl.ItemTemplate>
+                <DataTemplate>
+                  <Button Click="OnSuggestionBubbleClicked"
+                          Tag="{Binding Text}"
+                          Style="{StaticResource SuggestionBubbleButtonStyle}">
+                    <TextBlock Text="{Binding Text}"
+                               FontSize="12"
+                               FontWeight="SemiBold"
+                               TextAlignment="Left"
+                               TextWrapping="Wrap"
+                               LineHeight="17" />
+                  </Button>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </StackPanel>
+        </Grid>
 
-        <StackPanel Width="212"
-                    VerticalAlignment="Top">
-          <ItemsControl ItemsSource="{Binding SuggestionBubbles}">
-            <ItemsControl.ItemsPanel>
-              <ItemsPanelTemplate>
-                <StackPanel />
-              </ItemsPanelTemplate>
-            </ItemsControl.ItemsPanel>
-            <ItemsControl.ItemTemplate>
-              <DataTemplate>
-                <Button Click="OnSuggestionBubbleClicked"
-                        Tag="{Binding Text}"
-                        Style="{StaticResource SuggestionBubbleButtonStyle}">
-                  <TextBlock Text="{Binding Text}"
-                             FontSize="13"
-                             FontWeight="SemiBold"
-                             TextAlignment="Center"
-                             TextWrapping="Wrap" />
-                </Button>
-              </DataTemplate>
-            </ItemsControl.ItemTemplate>
-          </ItemsControl>
-        </StackPanel>
-      </Grid>
+        <Button x:Name="ClosedShellClickCatcher"
+                Width="300"
+                Height="462"
+                Canvas.Left="214"
+                Canvas.Top="18"
+                Background="#01FFFFFF"
+                AutomationProperties.AutomationId="ClosedShellClickCatcher"
+                AutomationProperties.Name="ClosedShellClickCatcher"
+                Click="OnTogglePanelClicked"
+                ContextMenu="{StaticResource PetSettingsMenu}"
+                Style="{StaticResource ClickCatcherButtonStyle}" />
 
-      <Grid Grid.Column="1"
-            Margin="0,18,8,18">
-        <Canvas Width="292"
-                Height="420"
-                HorizontalAlignment="Right"
-                VerticalAlignment="Top">
-          <Button x:Name="ClosedShellClickCatcher"
-                  Width="228"
-                  Height="388"
-                  Canvas.Left="54"
-                  Canvas.Top="14"
-                  Background="#01FFFFFF"
-                  AutomationProperties.AutomationId="ClosedShellClickCatcher"
-                  AutomationProperties.Name="ClosedShellClickCatcher"
-                  Click="OnTogglePanelClicked"
-                  ContextMenu="{StaticResource PetSettingsMenu}"
-                  Style="{StaticResource ClickCatcherButtonStyle}" />
-
-          <StackPanel Width="198"
-                      Canvas.Left="84"
-                      Canvas.Top="4">
-            <Border Width="198"
-                    Height="116"
-                    Padding="14,12,14,12"
-                    CornerRadius="24"
-                    Background="{StaticResource CreamBrush}"
-                    BorderBrush="{StaticResource SoftBorderBrush}"
-                    BorderThickness="1"
-                    Effect="{StaticResource BubbleShadow}">
-              <ScrollViewer VerticalScrollBarVisibility="Auto"
+        <StackPanel x:Name="ReplyBubbleHost"
+                    Width="244"
+                    Canvas.Left="244"
+                    Canvas.Top="18">
+          <Border x:Name="ReplyBubble"
+                  Width="244"
+                  Height="112"
+                  Padding="16,14,16,12"
+                  CornerRadius="24"
+                  Background="{StaticResource CreamBrush}"
+                  BorderBrush="{StaticResource SoftBorderBrush}"
+                  BorderThickness="1"
+                  Effect="{StaticResource BubbleShadow}">
+            <Grid>
+              <ScrollViewer Margin="0,8,10,0"
+                            VerticalScrollBarVisibility="Auto"
                             HorizontalScrollBarVisibility="Disabled">
                 <TextBlock Text="{Binding WhisperLine}"
                            TextWrapping="Wrap"
-                           FontFamily="Georgia"
-                           FontSize="14"
-                           FontWeight="Bold"
-                           LineHeight="21"
+                           FontSize="15"
+                           FontWeight="SemiBold"
+                           LineHeight="22"
                            Foreground="{StaticResource InkBrush}" />
               </ScrollViewer>
-            </Border>
-            <Polygon HorizontalAlignment="Center"
-                     Margin="0,-2,0,0"
-                     Fill="{StaticResource CreamBrush}"
-                     Points="0,0 18,0 9,12" />
-          </StackPanel>
+              <Thumb x:Name="ReplyBubbleResizeThumb"
+                     Width="16"
+                     Height="16"
+                     HorizontalAlignment="Right"
+                     VerticalAlignment="Top"
+                     Margin="0,6,6,0"
+                     Cursor="SizeNESW"
+                     DragDelta="OnReplyBubbleResizeDragDelta">
+                <Thumb.Template>
+                  <ControlTemplate TargetType="Thumb">
+                    <Grid Width="16"
+                          Height="16"
+                          Background="Transparent">
+                      <Path HorizontalAlignment="Right"
+                            VerticalAlignment="Top"
+                            Stroke="#668A8F93"
+                            StrokeThickness="1.4"
+                            Data="M 0 8 L 8 0 M 4 12 L 12 4 M 8 16 L 16 8" />
+                    </Grid>
+                  </ControlTemplate>
+                </Thumb.Template>
+              </Thumb>
+            </Grid>
+          </Border>
+          <Polygon HorizontalAlignment="Center"
+                   Margin="0,-2,0,0"
+                   Fill="{StaticResource CreamBrush}"
+                   Points="0,0 18,0 9,12" />
+        </StackPanel>
 
-          <Button x:Name="PetToggleButton"
-                  Width="212"
-                  Height="236"
-                  Canvas.Left="78"
-                  Canvas.Top="128"
-                  AutomationProperties.AutomationId="PetToggleButton"
-                  AutomationProperties.Name="PetToggleButton"
-                  Click="OnTogglePanelClicked"
-                  ContextMenu="{StaticResource PetSettingsMenu}"
-                  Style="{StaticResource InvisiblePetButtonStyle}">
-            <Viewbox Width="168"
-                     Height="208"
-                     HorizontalAlignment="Center"
-                     VerticalAlignment="Center"
-                     Stretch="Uniform">
-              <controls:PetAvatarControl IsHitTestVisible="False" />
-            </Viewbox>
-          </Button>
+        <Button x:Name="PetToggleButton"
+                Width="184"
+                Height="212"
+                Canvas.Left="274"
+                Canvas.Top="138"
+                AutomationProperties.AutomationId="PetToggleButton"
+                AutomationProperties.Name="PetToggleButton"
+                Click="OnTogglePanelClicked"
+                ContextMenu="{StaticResource PetSettingsMenu}"
+                Style="{StaticResource InvisiblePetButtonStyle}">
+          <Viewbox Width="148"
+                   Height="184"
+                   HorizontalAlignment="Center"
+                   VerticalAlignment="Center"
+                   Stretch="Uniform">
+            <controls:PetAvatarControl IsHitTestVisible="False" />
+          </Viewbox>
+        </Button>
 
-          <Border x:Name="ComposerBubble"
-                  Width="198"
-                  Visibility="Hidden"
-                  Opacity="0"
-                  Canvas.Left="84"
-                  Canvas.Top="364"
-                  Padding="12,12"
-                  CornerRadius="24"
-                  Background="#FFFFFFFF"
-                  BorderBrush="#3379B5AA"
-                  BorderThickness="1.5"
-                  Effect="{StaticResource BubbleShadow}">
+        <Border x:Name="ComposerBubble"
+                Width="270"
+                Visibility="Hidden"
+                Opacity="0"
+                Canvas.Left="230"
+                Canvas.Top="378"
+                Padding="14,12,14,14"
+                CornerRadius="22"
+                Background="#FFFFFFFF"
+                BorderBrush="#3379B5AA"
+                BorderThickness="1.5"
+                Effect="{StaticResource BubbleShadow}">
             <StackPanel>
               <TextBlock Text="跟团子说一句"
                          FontSize="11"
                          FontWeight="SemiBold"
                          Foreground="{Binding AccentBrush}" />
-              <Grid Margin="0,8,0,0">
+              <Grid Margin="0,10,0,0">
                 <Grid.ColumnDefinitions>
                   <ColumnDefinition Width="*" />
                   <ColumnDefinition Width="Auto" />
@@ -315,7 +336,7 @@
                            Text="{Binding ChatInput, UpdateSourceTrigger=PropertyChanged}"
                            KeyDown="OnNaturalInputKeyDown"
                            GotKeyboardFocus="OnQuickComposerFocused"
-                           MinHeight="22"
+                           MinHeight="24"
                            IsEnabled="{Binding CanSendMessage}"
                            Style="{StaticResource PanelTextBoxStyle}" />
                   <TextBlock Text="直接说，比如：我现在有点乱 / 帮我盯住 pitch"
@@ -340,16 +361,15 @@
                         x:Name="SubmitInputButton"
                         AutomationProperties.AutomationId="SubmitInputButton"
                         AutomationProperties.Name="SubmitInputButton"
-                        Margin="10,0,0,0"
+                        Margin="12,0,0,0"
                         Click="OnSubmitInputClicked"
                         Style="{StaticResource AccentButtonStyle}"
                         IsEnabled="{Binding CanSendMessage}"
                         Content="{Binding SendButtonText}" />
               </Grid>
             </StackPanel>
-          </Border>
-        </Canvas>
-      </Grid>
+        </Border>
+      </Canvas>
     </Grid>
   </Grid>
 </Window>

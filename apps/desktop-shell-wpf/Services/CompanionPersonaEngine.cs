@@ -25,7 +25,7 @@ public sealed class CompanionPersonaEngine
             ? "现在正在专注冲刺里，我会把注意力继续按在这条主线上。"
             : supervisionEnabled
                 ? "我会继续盯着，不会让它悄悄掉下去。"
-                : "虽然你把监督先暂停了，但这条事我还是替你记着。";
+                : "这条事我会替你记着。";
 
         if (topTask is null)
         {
@@ -89,7 +89,7 @@ public sealed class CompanionPersonaEngine
 
         if (!supervisionEnabled)
         {
-            return "虽然你把自动监督停了，但我还在。你可以把我当成不会多嘴的同桌，想说什么就说。";
+            return "我还在。你可以把我当成不会多嘴的同桌，想说什么就说。";
         }
 
         return topTask is null

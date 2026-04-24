@@ -60,6 +60,7 @@ public sealed class OllamaChatService
         IReadOnlyList<ProjectMemory> knownProjects,
         string userInput,
         string? taskFeedback,
+        string? activeWorkspaceContext,
         bool supervisionEnabled,
         bool focusSprintActive,
         CancellationToken cancellationToken = default)
@@ -74,6 +75,7 @@ public sealed class OllamaChatService
                 orderedTasks,
                 knownProjects,
                 taskFeedback,
+                activeWorkspaceContext,
                 supervisionEnabled,
                 focusSprintActive),
             Options = new OllamaOptions
@@ -203,6 +205,7 @@ public sealed class OllamaChatService
         IReadOnlyList<CompanionTask> orderedTasks,
         IReadOnlyList<ProjectMemory> knownProjects,
         string? taskFeedback,
+        string? activeWorkspaceContext,
         bool supervisionEnabled,
         bool focusSprintActive)
     {
@@ -216,7 +219,7 @@ public sealed class OllamaChatService
             new()
             {
                 Role = "system",
-                Content = BuildTaskContext(orderedTasks, knownProjects, taskFeedback, supervisionEnabled, focusSprintActive)
+                Content = BuildTaskContext(orderedTasks, knownProjects, taskFeedback, activeWorkspaceContext, supervisionEnabled, focusSprintActive)
             }
         };
 
@@ -236,6 +239,7 @@ public sealed class OllamaChatService
         IReadOnlyList<CompanionTask> orderedTasks,
         IReadOnlyList<ProjectMemory> knownProjects,
         string? taskFeedback,
+        string? activeWorkspaceContext,
         bool supervisionEnabled,
         bool focusSprintActive)
     {
@@ -263,7 +267,11 @@ public sealed class OllamaChatService
         var supervisionLine = supervisionEnabled ? "监督是开启的。" : "监督目前暂停。";
         var sprintLine = focusSprintActive ? "当前正在专注冲刺。" : "当前不在专注冲刺。";
 
-        return $"已记录任务：{taskLines}。已知项目线：{projectLines}。{feedbackLine}。{supervisionLine}{sprintLine}";
+        var workspaceLine = string.IsNullOrWhiteSpace(activeWorkspaceContext)
+            ? "当前没有活跃工作区上下文。"
+            : activeWorkspaceContext;
+
+        return $"已记录任务：{taskLines}。已知项目线：{projectLines}。{workspaceLine}。{feedbackLine}。{supervisionLine}{sprintLine}";
     }
 
     private static string GetStateLabel(CompanionTaskState state)

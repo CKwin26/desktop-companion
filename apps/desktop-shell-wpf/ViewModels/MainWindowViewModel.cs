@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.IO;
 using System.Runtime.CompilerServices;
+using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Media;
 using System.Windows.Threading;
@@ -42,6 +43,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     private readonly CompanionPersonaEngine _personaEngine;
     private readonly ProjectCognitionService _projectCognitionService;
     private readonly WorkspaceIngestionService _workspaceIngestionService;
+    private readonly RepoStructureReaderService _repoStructureReaderService;
     private readonly PersonalDistillationService _personalDistillationService;
     private readonly LocalCodexThreadIndexService _localCodexThreadIndexService;
     private readonly VsCodeBridgeService _vsCodeBridgeService;
@@ -58,6 +60,15 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
 
     private DateTimeOffset _nextReviewAt;
     private DateTimeOffset? _focusSprintEndsAt;
+    private WorkspaceIngestionService.DirectorySurfaceResult? _lastDirectorySurface;
+    private string? _pendingDirectoryPath;
+    private string? _pendingDirectoryLabel;
+    private string? _pendingWorkspacePath;
+    private string? _pendingWorkspaceLabel;
+    private string? _activeWorkspacePath;
+    private string? _activeWorkspaceLabel;
+    private string? _activeWorkspaceKindLabel;
+    private DateTimeOffset? _activeWorkspaceTouchedAt;
 
     private string _petName = "团子";
     private string _moodLabel = "在你这边";
@@ -70,12 +81,12 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     private Brush _whisperBrush = CreateBrush("#CC22363B");
     private PetMood _mood = PetMood.Idle;
     private bool _isPanelOpen;
-    private bool _supervisionEnabled = true;
+    private bool _supervisionEnabled = false;
     private bool _isAwaitingReply;
     private string _panelSummary = "现在这里只有一块主聊天面板。你先说话，团子再替你记事。";
     private string _panelHint = "可以直接说心情，也可以直接交待任务。";
     private string _chatInput = string.Empty;
-    private string _rhythmStatusLine = "监督中 · 下次梳理 25:00";
+    private string _rhythmStatusLine = "自动提醒已关闭。";
     private string _focusSprintStatusLine = "专注冲刺还没开始。";
 
     public MainWindowViewModel()
@@ -91,6 +102,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             new CompanionPersonaEngine(),
             new ProjectCognitionService(),
             new WorkspaceIngestionService(),
+            new RepoStructureReaderService(),
             new PersonalDistillationService(),
             new LocalCodexThreadIndexService(),
             new VsCodeBridgeService(),
@@ -111,6 +123,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         CompanionPersonaEngine personaEngine,
         ProjectCognitionService projectCognitionService,
         WorkspaceIngestionService workspaceIngestionService,
+        RepoStructureReaderService repoStructureReaderService,
         PersonalDistillationService personalDistillationService,
         LocalCodexThreadIndexService localCodexThreadIndexService,
         VsCodeBridgeService vsCodeBridgeService,
@@ -128,6 +141,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         _personaEngine = personaEngine;
         _projectCognitionService = projectCognitionService;
         _workspaceIngestionService = workspaceIngestionService;
+        _repoStructureReaderService = repoStructureReaderService;
         _personalDistillationService = personalDistillationService;
         _localCodexThreadIndexService = localCodexThreadIndexService;
         _vsCodeBridgeService = vsCodeBridgeService;
@@ -267,7 +281,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
 
     public string PanelToggleText => IsPanelOpen ? "先收起" : "继续聊";
 
-    public string SupervisionToggleText => SupervisionEnabled ? "暂停监督" : "继续监督";
+    public string SupervisionToggleText => "监督已关闭";
 
     public string SendButtonText => IsAwaitingReply ? "思考中..." : "发送";
 
@@ -458,6 +472,12 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             }
 
             var openSucceeded = _vsCodeBridgeService.TryOpenWorkspace(toolWorkspacePath, out var openReply);
+            if (openSucceeded)
+            {
+                RememberActiveWorkspace(
+                    toolWorkspacePath,
+                    Path.GetFileName(toolWorkspacePath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)));
+            }
             AddConversation(ConversationRole.Companion, openReply);
             RefreshDashboard(openReply);
 
@@ -502,6 +522,9 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
 
             try
             {
+                RememberActiveWorkspace(
+                    toolWorkspacePath,
+                    Path.GetFileName(toolWorkspacePath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)));
                 using var timeoutCts = new CancellationTokenSource(
                     isCodexInspection ? TimeSpan.FromMinutes(5) : TimeSpan.FromMinutes(3));
                 var result = await _vsCodeBridgeService.RunCodexTaskAsync(toolWorkspacePath, codexPrompt, timeoutCts.Token);
@@ -531,77 +554,43 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             return;
         }
 
-        if (_workspaceIngestionService.TryExtractWorkspacePath(input, out var workspacePath))
+        if (TryResolveContextualWorkspaceUnderstandingRequest(input, out var contextualWorkspacePath))
         {
-            if (!_permissionProfile.CanReadSelectedWorkspace)
+            await HandleWorkspaceUnderstandingAsync(contextualWorkspacePath);
+            return;
+        }
+
+        if (TryResolveContextualDirectorySurfaceRequest(input, out var contextualDirectoryPath))
+        {
+            await HandleDirectorySurfaceAsync(input, contextualDirectoryPath);
+            return;
+        }
+
+        if (LooksLikeDirectoryRecommendationRequest(input)
+            && TryBuildDirectoryRecommendationReply(out var recommendationReply))
+        {
+            AddConversation(ConversationRole.Companion, recommendationReply);
+            RefreshDashboard(recommendationReply);
+            return;
+        }
+
+        if (LooksLikeDirectorySurfaceRequest(input))
+        {
+            if (!_workspaceIngestionService.TryExtractWorkspacePath(input, out var directoryPath))
             {
-                const string noPermissionReply = "这一步我先不去读你电脑里的目录。你先从左边选一个权限方案，我再按你给的边界做事。";
-                AddConversation(ConversationRole.Companion, noPermissionReply);
-                RefreshDashboard(noPermissionReply);
+                const string missingDirectoryReply = "你要我看本地目录时，直接把具体路径发我也行；如果就是桌面，直接说“看看桌面有什么”就可以。";
+                AddConversation(ConversationRole.Companion, missingDirectoryReply);
+                RefreshDashboard(missingDirectoryReply);
                 return;
             }
 
-            IsAwaitingReply = true;
-            AiStatusLabel = "AI 读目录中";
-            WhisperLine = "团子去翻你给我的项目目录了，我先把能读的资料捋出来。";
-            RefreshDashboard("团子去翻你给我的项目目录了，我先把能读的资料捋出来。");
+            await HandleDirectorySurfaceAsync(input, directoryPath);
+            return;
+        }
 
-            try
-            {
-                provider = await GetProviderAsync();
-                var scan = await Task.Run(() => _workspaceIngestionService.ScanWorkspace(workspacePath));
-                if (!scan.IsSuccess)
-                {
-                    AiStatusLabel = provider.Label;
-                    AddConversation(ConversationRole.Companion, scan.Message);
-                    RefreshDashboard(scan.Message);
-                    return;
-                }
-
-                var digest = await provider.AnalyzeProjectDumpAsync(
-                                 scan.AnalysisInput,
-                                 GetOrderedProjects())
-                             ?? _projectCognitionService.CreateFallbackDigest(
-                                 string.Join(
-                                     "\n",
-                                     scan.Documents.Select(document => $"{document.FileName}: {document.Excerpt}")),
-                                 GetOrderedProjects());
-
-                if (_permissionProfile.CanBuildProjectMemoryFromDocs)
-                {
-                    _projectCognitionService.MergeDigestIntoProjects(_projects, digest);
-                    PersistProjects();
-                }
-
-                if (_permissionProfile.CanRememberWorkspaceSources)
-                {
-                    UpsertWorkspaceSource(scan);
-                    PersistWorkspaceSources();
-                }
-
-                var workspaceReply =
-                    $"我先读了 {scan.RootLabel} 这一路里的 {scan.Documents.Count} 份资料，先替你归出了项目线。"
-                    + _projectCognitionService.BuildCompanionReply(digest);
-
-                workspaceReply = BuildWorkspaceImportReply(scan, digest);
-
-                AiStatusLabel = provider.Label;
-                AddConversation(ConversationRole.Companion, workspaceReply);
-                RefreshDashboard(workspaceReply);
-            }
-            catch
-            {
-                const string failureReply = "这个目录我去翻了，但这轮还没稳稳读出来。你可以先给我 README、总结文档，或者把更具体的子目录发我。";
-                InvalidateProviderCache();
-                AiStatusLabel = $"{provider?.Label ?? "AI"} 暂时没接住";
-                AddConversation(ConversationRole.Companion, failureReply);
-                RefreshDashboard(failureReply);
-            }
-            finally
-            {
-                IsAwaitingReply = false;
-            }
-
+        if (_workspaceIngestionService.TryExtractWorkspacePath(input, out var workspacePath))
+        {
+            await HandleWorkspaceUnderstandingAsync(workspacePath);
             return;
         }
 
@@ -688,6 +677,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
                         GetOrderedProjects(),
                         input,
                         taskFeedback,
+                        BuildActiveWorkspaceContextLine(),
                         SupervisionEnabled,
                         _focusSprintEndsAt is not null)
                     ?? fallbackReply;
@@ -711,23 +701,15 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
 
     public void ReviewTasks()
     {
-        var reviewMessage = _personaEngine.BuildReviewMessage(GetOrderedTasks());
-        AddConversation(ConversationRole.Companion, reviewMessage);
-        RefreshDashboard(reviewMessage);
+        const string reply = "自动监督已经关掉了，我不会再按节奏回来催你。";
+        AddConversation(ConversationRole.Companion, reply);
+        RefreshDashboard(reply);
     }
 
     public void ToggleSupervision()
     {
-        SupervisionEnabled = !SupervisionEnabled;
-        var reply = SupervisionEnabled
-            ? "好，那我把监督重新打开。我会按节奏回来找你，也会继续盯着主线。"
-            : "行，我先把催促声收一收。但你一叫我，我还是立刻回来。";
-
-        if (SupervisionEnabled)
-        {
-            _nextReviewAt = DateTimeOffset.Now.Add(_reviewCadence);
-        }
-
+        SupervisionEnabled = false;
+        const string reply = "自动监督已经彻底关掉了。后面只有你主动叫我，我才会接着说。";
         AddConversation(ConversationRole.Companion, reply);
         RefreshDashboard(reply);
     }
@@ -958,7 +940,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         new(
             AiProviderKind.None,
             "AI 未连接",
-            (_, _, _, _, _, _, _, _) => Task.FromResult<string?>(null),
+            (_, _, _, _, _, _, _, _, _) => Task.FromResult<string?>(null),
             (_, _, _) => Task.FromResult<ProjectCognitionDigest?>(null),
             (_, _) => Task.FromResult<DistilledUserProfile?>(null));
 
@@ -995,8 +977,11 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         {
             _nextReviewAt = now.Add(_reviewCadence);
             var reviewReply = _personaEngine.BuildReviewMessage(GetOrderedTasks());
-            AddConversation(ConversationRole.Companion, reviewReply);
-            RefreshDashboard(reviewReply);
+            if (ShouldAppendSupervisionReview(reviewReply, now))
+            {
+                AddConversation(ConversationRole.Companion, reviewReply);
+                RefreshDashboard(reviewReply);
+            }
         }
 
         RefreshRhythmState();
@@ -1168,9 +1153,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     private void RefreshRhythmState()
     {
         var now = DateTimeOffset.Now;
-        RhythmStatusLine = SupervisionEnabled
-            ? $"监督中 · 下次梳理 {FormatRemaining(_nextReviewAt - now)}"
-            : "监督暂停了，但团子还在听你说话。";
+        RhythmStatusLine = "自动提醒已关闭。";
 
         FocusSprintStatusLine = _focusSprintEndsAt is null
             ? "专注冲刺还没开始。"
@@ -1383,6 +1366,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         var storedMessages = _conversationStore.LoadMessages();
         var loadedMessages = storedMessages
             .Where(message => !SampleTaskTitles.Any(title => message.Text.Contains(title, StringComparison.OrdinalIgnoreCase)))
+            .Where(message => !LooksLikeAutomaticSupervisionMessage(message))
             .ToList();
 
         if (loadedMessages.Count == 0)
@@ -1398,6 +1382,40 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         {
             PersistConversation();
         }
+    }
+
+    private bool ShouldAppendSupervisionReview(string reviewReply, DateTimeOffset now)
+    {
+        if (string.IsNullOrWhiteSpace(reviewReply))
+        {
+            return false;
+        }
+
+        var latestCompanion = _conversationHistory.LastOrDefault(message => message.Role == ConversationRole.Companion);
+        if (string.Equals(latestCompanion?.Text, reviewReply, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        var latestUser = _conversationHistory.LastOrDefault(message => message.Role == ConversationRole.User);
+        if (latestUser is null || now - latestUser.CreatedAt > TimeSpan.FromHours(3))
+        {
+            return false;
+        }
+
+        return _tasks.Any(task => task.State is CompanionTaskState.Doing or CompanionTaskState.Blocked)
+               || _focusSprintEndsAt is not null;
+    }
+
+    private static bool LooksLikeAutomaticSupervisionMessage(ConversationMessage message)
+    {
+        if (message.Role != ConversationRole.Companion)
+        {
+            return false;
+        }
+
+        return message.Text.StartsWith("我回来", StringComparison.OrdinalIgnoreCase)
+               && ContainsAnyIgnoreCase(message.Text, "盯进度", "检查主线", "梳理", "看看");
     }
 
     private void AddConversation(ConversationRole role, string text, bool persist = true)
@@ -1552,9 +1570,12 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
 
     private string BuildWorkspaceImportReply(
         WorkspaceIngestionService.WorkspaceScanResult scan,
-        ProjectCognitionDigest digest)
+        ProjectCognitionDigest digest,
+        RepoStructureReaderService.RepoStructureSnapshot repoStructure)
     {
-        var prefix = $"我先读了 {scan.RootLabel} 这一路里的 {scan.Documents.Count} 份资料。";
+        var prefix = repoStructure.IsSuccess
+            ? $"我先读了 {scan.RootLabel} 的目录骨架，{_repoStructureReaderService.BuildUserFacingSummary(repoStructure)}，再顺手看了 {scan.Documents.Count} 份资料。"
+            : $"我先读了 {scan.RootLabel} 这一路里的 {scan.Documents.Count} 份资料。";
 
         if (_permissionProfile.CanBuildProjectMemoryFromDocs)
         {
@@ -1570,6 +1591,588 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             : digest.SuggestedFocus;
 
         return $"{prefix} 先看起来更像这些项目线：{projectNames}。这轮我先不给你长期记住，只做临时梳理；现在更值得先动的是“{focus}”。";
+    }
+
+    private static string BuildDirectorySurfaceReply(
+        string input,
+        WorkspaceIngestionService.DirectorySurfaceResult surface)
+    {
+        if (!surface.IsSuccess)
+        {
+            return surface.Message;
+        }
+
+        var displayLabel = input.Contains("桌面", StringComparison.OrdinalIgnoreCase)
+                           || input.Contains("desktop", StringComparison.OrdinalIgnoreCase)
+            ? "桌面"
+            : surface.RootLabel;
+
+        var lines = new List<string>
+        {
+            $"我先看了一眼{displayLabel}，顶层大概有 {surface.Directories.Count} 个文件夹、{surface.Files.Count} 个文件。"
+        };
+
+        if (surface.Directories.Count > 0)
+        {
+            lines.Add(BuildDirectorySurfacePreview("文件夹", surface.Directories));
+        }
+
+        if (surface.Files.Count > 0)
+        {
+            lines.Add(BuildDirectorySurfacePreview("文件", surface.Files));
+        }
+
+        lines.Add("你要的话，我下一步可以只展开其中一个目录继续看。");
+        return string.Join("\n", lines);
+    }
+
+    private static string BuildDirectorySurfacePreview(string label, IReadOnlyList<string> entries)
+    {
+        const int previewCount = 6;
+        var preview = string.Join("、", entries.Take(previewCount));
+        return entries.Count > previewCount
+            ? $"{label}包括：{preview} 等 {entries.Count} 项。"
+            : $"{label}包括：{preview}。";
+    }
+
+    private async Task HandleDirectorySurfaceAsync(string input, string directoryPath)
+    {
+        if (!_permissionProfile.CanReadSelectedWorkspace)
+        {
+            const string noPermissionReply = "这一步我先不去读你电脑里的目录。你先从左边选一个权限方案，我再按你给的边界做事。";
+            AddConversation(ConversationRole.Companion, noPermissionReply);
+            RefreshDashboard(noPermissionReply);
+            return;
+        }
+
+        IsAwaitingReply = true;
+        AiStatusLabel = "本地目录中";
+        WhisperLine = "团子先去看一眼这个目录顶层有什么。";
+        RefreshDashboard("团子先去看一眼这个目录顶层有什么。");
+
+        try
+        {
+            var surface = await Task.Run(() => _workspaceIngestionService.DescribeDirectorySurface(directoryPath));
+            if (surface.IsSuccess)
+            {
+                RememberDirectorySurface(surface);
+            }
+
+            var directoryReply = BuildDirectorySurfaceReply(input, surface);
+            AiStatusLabel = surface.IsSuccess ? "本地目录" : "本地目录暂时没接住";
+            AddConversation(ConversationRole.Companion, directoryReply);
+            RefreshDashboard(directoryReply);
+        }
+        catch
+        {
+            const string failureReply = "这个目录我去看了，但这轮没顺利把顶层内容列出来。你把更具体的路径再发我一次，我继续。";
+            AiStatusLabel = "本地目录暂时没接住";
+            AddConversation(ConversationRole.Companion, failureReply);
+            RefreshDashboard(failureReply);
+        }
+        finally
+        {
+            IsAwaitingReply = false;
+        }
+    }
+
+    private async Task HandleWorkspaceUnderstandingAsync(string workspacePath)
+    {
+        if (!_permissionProfile.CanReadSelectedWorkspace)
+        {
+            const string noPermissionReply = "这一步我先不去读你电脑里的目录。你先从左边选一个权限方案，我再按你给的边界做事。";
+            AddConversation(ConversationRole.Companion, noPermissionReply);
+            RefreshDashboard(noPermissionReply);
+            return;
+        }
+
+        ActiveAiProvider? provider = null;
+        async Task<ActiveAiProvider> GetProviderAsync()
+        {
+            provider ??= await ResolveActiveProviderAsync();
+            return provider;
+        }
+
+        IsAwaitingReply = true;
+        AiStatusLabel = "AI 读工作区中";
+        WhisperLine = "团子在顺着目录骨架、入口文件和关键实现文件往里读。";
+        RefreshDashboard("团子在顺着目录骨架、入口文件和关键实现文件往里读。");
+
+        try
+        {
+            provider = await GetProviderAsync();
+            var scan = await Task.Run(() => _workspaceIngestionService.ScanWorkspace(workspacePath));
+            if (!scan.IsSuccess)
+            {
+                AiStatusLabel = provider.Label;
+                AddConversation(ConversationRole.Companion, scan.Message);
+                RefreshDashboard(scan.Message);
+                return;
+            }
+
+            var repoStructure = _repoStructureReaderService.ReadStructure(scan.RootPath);
+            var analysisInput = repoStructure.IsSuccess
+                ? _repoStructureReaderService.BuildAnalysisInput(scan, repoStructure)
+                : scan.AnalysisInput;
+
+            var digest = await provider.AnalyzeProjectDumpAsync(
+                             analysisInput,
+                             GetOrderedProjects())
+                         ?? _projectCognitionService.CreateFallbackDigest(
+                             string.Join(
+                                 "\n",
+                                 scan.Documents.Select(document => $"{document.FileName}: {document.Excerpt}")),
+                             GetOrderedProjects());
+
+            if (_permissionProfile.CanBuildProjectMemoryFromDocs)
+            {
+                _projectCognitionService.MergeDigestIntoProjects(_projects, digest);
+                PersistProjects();
+            }
+
+            if (_permissionProfile.CanRememberWorkspaceSources)
+            {
+                UpsertWorkspaceSource(scan);
+                PersistWorkspaceSources();
+            }
+
+            RememberActiveWorkspace(
+                scan.RootPath,
+                scan.RootLabel,
+                repoStructure.IsSuccess ? repoStructure.KindLabel : null);
+
+            var workspaceReply = BuildWorkspaceImportReply(scan, digest, repoStructure);
+            AiStatusLabel = provider.Label;
+            AddConversation(ConversationRole.Companion, workspaceReply);
+            RefreshDashboard(workspaceReply);
+        }
+        catch
+        {
+            const string failureReply = "这个工作区我去读了，但这轮还没稳稳接住。你可以先给我更靠近入口文件、主代码目录或 README 的那一层。";
+            InvalidateProviderCache();
+            AiStatusLabel = $"{provider?.Label ?? "AI"} 暂时没接住";
+            AddConversation(ConversationRole.Companion, failureReply);
+            RefreshDashboard(failureReply);
+        }
+        finally
+        {
+            IsAwaitingReply = false;
+        }
+    }
+
+    private void RememberDirectorySurface(WorkspaceIngestionService.DirectorySurfaceResult surface)
+    {
+        _lastDirectorySurface = surface;
+        _pendingDirectoryPath = null;
+        _pendingDirectoryLabel = null;
+    }
+
+    private void RememberActiveWorkspace(string workspacePath, string workspaceLabel, string? kindLabel = null)
+    {
+        _activeWorkspacePath = workspacePath;
+        _activeWorkspaceLabel = workspaceLabel;
+        _activeWorkspaceKindLabel = kindLabel;
+        _activeWorkspaceTouchedAt = DateTimeOffset.Now;
+        _pendingWorkspacePath = null;
+        _pendingWorkspaceLabel = null;
+    }
+
+    private bool TryBuildDirectoryRecommendationReply(out string reply)
+    {
+        reply = string.Empty;
+        if (!TryGetLastDirectorySurface(out var surface) || surface.Directories.Count == 0)
+        {
+            return false;
+        }
+
+        var selectedDirectory = surface.Directories
+            .OrderByDescending(ScoreDirectoryInterest)
+            .ThenBy(name => name, StringComparer.OrdinalIgnoreCase)
+            .First();
+
+        _pendingWorkspacePath = Path.Combine(surface.RootPath, selectedDirectory);
+        _pendingWorkspaceLabel = selectedDirectory;
+
+        reply = $"我会先看 {selectedDirectory}。它比桌面上的零散文件更像一条成型主线；你说“好的”“继续”或“展开它”，我就直接按工作区方式读它的结构、入口和关键文件。";
+        return true;
+    }
+
+    private bool TryResolveContextualWorkspaceUnderstandingRequest(string input, out string workspacePath)
+    {
+        workspacePath = string.Empty;
+        var looksLikeUnderstanding = LooksLikeWorkspaceUnderstandingRequest(input);
+        var looksLikeContinuation = LooksLikeAffirmativeDirectoryFollowUp(input)
+            || LooksLikeWorkspaceContinuationRequest(input);
+
+        if (TryResolveWorkspaceMentionFromRecentSurface(input, out workspacePath))
+        {
+            return true;
+        }
+
+        if (looksLikeUnderstanding)
+        {
+            if (TryResolvePendingWorkspace(out workspacePath))
+            {
+                return true;
+            }
+
+            if (TryResolveActiveWorkspace(out workspacePath))
+            {
+                return true;
+            }
+        }
+
+        if (looksLikeContinuation)
+        {
+            if (TryResolvePendingWorkspace(out workspacePath))
+            {
+                return true;
+            }
+
+            if (TryResolveActiveWorkspace(out workspacePath))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private bool TryResolveContextualDirectorySurfaceRequest(string input, out string directoryPath)
+    {
+        directoryPath = string.Empty;
+
+        if (TryResolveDirectoryMentionFromRecentSurface(input, out directoryPath))
+        {
+            return true;
+        }
+
+        if (LooksLikeAffirmativeDirectoryFollowUp(input)
+            && TryResolvePendingDirectory(out directoryPath))
+        {
+            return true;
+        }
+
+        if (ContainsAnyIgnoreCase(input, "给你授权", "授权", "继续", "展开", "展开它", "读它", "看看它", "怎么样")
+            && TryResolvePendingDirectory(out directoryPath))
+        {
+            return true;
+        }
+
+        return false;
+    }
+
+    private bool TryResolveWorkspaceMentionFromRecentSurface(string input, out string workspacePath)
+    {
+        workspacePath = string.Empty;
+        if (!LooksLikeWorkspaceUnderstandingRequest(input) || !TryGetLastDirectorySurface(out var surface))
+        {
+            return false;
+        }
+
+        foreach (var directoryName in surface.Directories.OrderByDescending(name => name.Length))
+        {
+            if (!input.Contains(directoryName, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            workspacePath = Path.Combine(surface.RootPath, directoryName);
+            _pendingWorkspacePath = workspacePath;
+            _pendingWorkspaceLabel = directoryName;
+            return true;
+        }
+
+        return false;
+    }
+
+    private bool TryResolveDirectoryMentionFromRecentSurface(string input, out string directoryPath)
+    {
+        directoryPath = string.Empty;
+        if (!TryGetLastDirectorySurface(out var surface))
+        {
+            return false;
+        }
+
+        foreach (var directoryName in surface.Directories.OrderByDescending(name => name.Length))
+        {
+            if (!input.Contains(directoryName, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            directoryPath = Path.Combine(surface.RootPath, directoryName);
+            _pendingDirectoryPath = directoryPath;
+            _pendingDirectoryLabel = directoryName;
+            return true;
+        }
+
+        return false;
+    }
+
+    private bool TryResolvePendingDirectory(out string directoryPath)
+    {
+        directoryPath = string.Empty;
+        if (!string.IsNullOrWhiteSpace(_pendingDirectoryPath) && Directory.Exists(_pendingDirectoryPath))
+        {
+            directoryPath = _pendingDirectoryPath;
+            return true;
+        }
+
+        if (TryResolvePendingDirectoryFromConversation(out directoryPath))
+        {
+            _pendingDirectoryPath = directoryPath;
+            _pendingDirectoryLabel = Path.GetFileName(directoryPath);
+            return true;
+        }
+
+        return false;
+    }
+
+    private bool TryResolvePendingWorkspace(out string workspacePath)
+    {
+        workspacePath = string.Empty;
+        if (!string.IsNullOrWhiteSpace(_pendingWorkspacePath) && Directory.Exists(_pendingWorkspacePath))
+        {
+            workspacePath = _pendingWorkspacePath;
+            return true;
+        }
+
+        return false;
+    }
+
+    private bool TryResolveActiveWorkspace(out string workspacePath)
+    {
+        workspacePath = string.Empty;
+        if (string.IsNullOrWhiteSpace(_activeWorkspacePath) || !Directory.Exists(_activeWorkspacePath))
+        {
+            return false;
+        }
+
+        if (_activeWorkspaceTouchedAt is null || DateTimeOffset.Now - _activeWorkspaceTouchedAt > TimeSpan.FromMinutes(30))
+        {
+            return false;
+        }
+
+        workspacePath = _activeWorkspacePath;
+        return true;
+    }
+
+    private bool TryResolvePendingDirectoryFromConversation(out string directoryPath)
+    {
+        directoryPath = string.Empty;
+        foreach (var message in _conversationHistory
+                     .Where(message => message.Role == ConversationRole.Companion)
+                     .Reverse()
+                     .Take(8))
+        {
+            var match = Regex.Match(
+                message.Text,
+                @"(?:~[/\\])?Desktop[/\\](?<tail>[^\s，。；;,]+)",
+                RegexOptions.IgnoreCase);
+
+            if (!match.Success)
+            {
+                continue;
+            }
+
+            var candidatePath = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory),
+                match.Groups["tail"].Value.Replace('/', Path.DirectorySeparatorChar));
+
+            if (Directory.Exists(candidatePath))
+            {
+                directoryPath = candidatePath;
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private bool TryGetLastDirectorySurface(out WorkspaceIngestionService.DirectorySurfaceResult surface)
+    {
+        if (_lastDirectorySurface is { IsSuccess: true } currentSurface)
+        {
+            surface = currentSurface;
+            return true;
+        }
+
+        var hasRecentDesktopSurface = _conversationHistory
+            .Where(message => message.Role == ConversationRole.Companion)
+            .Reverse()
+            .Take(12)
+            .Any(message => message.Text.Contains("我先看了一眼桌面", StringComparison.OrdinalIgnoreCase));
+
+        if (hasRecentDesktopSurface
+            && _workspaceIngestionService.TryExtractWorkspacePath("看看桌面有什么", out var desktopPath))
+        {
+            var desktopSurface = _workspaceIngestionService.DescribeDirectorySurface(desktopPath);
+            if (desktopSurface.IsSuccess)
+            {
+                _lastDirectorySurface = desktopSurface;
+                surface = desktopSurface;
+                return true;
+            }
+        }
+
+        surface = WorkspaceIngestionService.DirectorySurfaceResult.Failure(string.Empty);
+        return false;
+    }
+
+    private static bool LooksLikeDirectoryRecommendationRequest(string input)
+    {
+        return ContainsAnyIgnoreCase(input, "最有意思", "最重要", "先看哪个", "先读哪个", "哪个文件夹", "哪一个文件夹");
+    }
+
+    private bool LooksLikeWorkspaceUnderstandingRequest(string input)
+    {
+        if (string.IsNullOrWhiteSpace(input))
+        {
+            return false;
+        }
+
+        if (!string.IsNullOrWhiteSpace(_activeWorkspaceLabel)
+            && input.Contains(_activeWorkspaceLabel, StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        if (!string.IsNullOrWhiteSpace(_pendingWorkspaceLabel)
+            && input.Contains(_pendingWorkspaceLabel, StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        return ContainsAnyIgnoreCase(
+            input,
+            "这个项目",
+            "这个仓库",
+            "这个目录",
+            "这个工作区",
+            "这个代码",
+            "主链路",
+            "主流程",
+            "结构",
+            "代码结构",
+            "文件结构",
+            "入口",
+            "入口文件",
+            "关键文件",
+            "怎么组织",
+            "最近改动",
+            "最近在做什么",
+            "下一步",
+            "帮我理解",
+            "分析一下",
+            "解释一下",
+            "这个是干嘛的",
+            "这个什么意思");
+    }
+
+    private static bool LooksLikeWorkspaceContinuationRequest(string input)
+    {
+        if (string.IsNullOrWhiteSpace(input))
+        {
+            return false;
+        }
+
+        return ContainsAnyIgnoreCase(
+            input,
+            "然后呢",
+            "然后怎么样",
+            "接下来呢",
+            "接着呢",
+            "再看一下",
+            "再看看",
+            "再往里看",
+            "继续往下",
+            "继续读",
+            "展开一下",
+            "展开说",
+            "详细一点",
+            "再细一点",
+            "再具体一点",
+            "顺着看",
+            "顺着读",
+            "这个呢",
+            "这块呢",
+            "那这个呢",
+            "那这块呢",
+            "入口在哪",
+            "主链路在哪",
+            "下一步呢",
+            "还有什么",
+            "为啥",
+            "为什么这样");
+    }
+
+    private static bool LooksLikeAffirmativeDirectoryFollowUp(string input)
+    {
+        var normalized = input.Trim();
+        return normalized is "好" or "好的" or "行" or "可以" or "是" or "对" or "继续" or "嗯" or "嗯嗯";
+    }
+
+    private string? BuildActiveWorkspaceContextLine()
+    {
+        if (!string.IsNullOrWhiteSpace(_activeWorkspacePath))
+        {
+            var kindLabel = string.IsNullOrWhiteSpace(_activeWorkspaceKindLabel) ? "工作区" : _activeWorkspaceKindLabel;
+            return $"当前活跃工作区：{_activeWorkspaceLabel ?? Path.GetFileName(_activeWorkspacePath)}（{kindLabel}，路径：{_activeWorkspacePath}）。如果用户没有明确切换对象，默认继续围绕这个工作区回答，不要要求重新提供路径、截图或命令输出。";
+        }
+
+        if (!string.IsNullOrWhiteSpace(_pendingWorkspacePath))
+        {
+            return $"当前待继续读取的工作区：{_pendingWorkspaceLabel ?? Path.GetFileName(_pendingWorkspacePath)}（路径：{_pendingWorkspacePath}）。如果用户没有明确切换对象，优先继续围绕它回答。";
+        }
+
+        if (_lastDirectorySurface is { IsSuccess: true } lastSurface)
+        {
+            return $"当前最近浏览的目录：{lastSurface.RootLabel}（路径：{lastSurface.RootPath}）。";
+        }
+
+        return null;
+    }
+
+    private static int ScoreDirectoryInterest(string directoryName)
+    {
+        if (string.IsNullOrWhiteSpace(directoryName))
+        {
+            return int.MinValue;
+        }
+
+        var normalized = directoryName.ToLowerInvariant();
+        var score = 0;
+
+        if (normalized.StartsWith('.') || normalized is "__macosx" or "desktop")
+        {
+            score -= 100;
+        }
+
+        score += normalized switch
+        {
+            "eeg" => 80,
+            "mainland" => 70,
+            "learned_slot" => 68,
+            "mutitrans" => 62,
+            "ooni" => 58,
+            "ml project" => 50,
+            "light_mechan" => 46,
+            "labro" => 44,
+            _ => 0
+        };
+
+        if (normalized.Contains("project"))
+        {
+            score += 20;
+        }
+
+        if (normalized.Contains("output") || normalized.Contains("backup") || normalized.Contains("副本"))
+        {
+            score -= 25;
+        }
+
+        return score;
     }
 
     private static string BuildCodexSuccessReplySafe(
@@ -1729,6 +2332,46 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     private static string BuildCodexFailureReply(VsCodeBridgeService.CodexDispatchResult result)
     {
         return $"这次我试着把任务交给 Codex，但没有顺利跑完。\n{result.Message}";
+    }
+
+    private static bool LooksLikeDirectorySurfaceRequest(string input)
+    {
+        if (string.IsNullOrWhiteSpace(input))
+        {
+            return false;
+        }
+
+        var mentionsConcreteLocation = input.Contains("桌面", StringComparison.OrdinalIgnoreCase)
+                                       || input.Contains("desktop", StringComparison.OrdinalIgnoreCase)
+                                       || input.Contains(":\\", StringComparison.OrdinalIgnoreCase);
+
+        if (!mentionsConcreteLocation)
+        {
+            return false;
+        }
+
+        return ContainsAnyIgnoreCase(
+                   input,
+                   "看一下",
+                   "看看",
+                   "看一眼",
+                   "读一下",
+                   "读读",
+                   "扫一眼",
+                   "翻一下",
+                   "列一下",
+                   "列出",
+                   "有什么",
+                   "有哪些",
+                   "什么文件",
+                   "哪些文件",
+                   "文件",
+                   "文件夹",
+                   "目录",
+                   "资料",
+                   "内容")
+               || input.ToLowerInvariant().Contains("list")
+               || input.ToLowerInvariant().Contains("show");
     }
 
     private bool LooksLikeVsCodeOpenRequest(string input)
@@ -2154,6 +2797,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         IReadOnlyList<ProjectMemory> knownProjects,
         string userInput,
         string? taskFeedback,
+        string? activeWorkspaceContext,
         bool supervisionEnabled,
         bool focusSprintActive,
         CancellationToken cancellationToken = default);
