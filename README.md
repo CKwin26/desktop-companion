@@ -4,7 +4,9 @@
   <img src="./docs/assets/github-cover.svg" alt="Desktop Companion cover" width="100%" />
 </p>
 
-Desktop Companion is a Windows-first desktop RA that can understand and track multiple active workstreams through a desktop-pet interface.
+Desktop Companion is a Windows-first desktop companion for people who run multiple research, engineering, writing, and application threads at the same time.
+
+It combines a desktop-pet interface, conversation-first interaction, lightweight multi-thread memory, and an execution bridge to VS Code / Codex. The goal is not to become another project-management suite, but to help the user keep the right project thread, evidence, blocker, and next step in mind.
 
 The current canonical runtime is a WPF host under `apps/desktop-shell-wpf`. Earlier prototypes are still kept in the repo as references, but they are not the main product path anymore.
 
@@ -197,6 +199,8 @@ The current default model in code is `gemma4:e4b`.
 ## Documentation
 
 - [Final product structure](./docs/final-product-structure.md)
+- [Product positioning](./docs/product-positioning.md)
+- [Product principles](./docs/product-principles.md)
 - [Repo structure](./docs/repo-structure.md)
 - [WPF host route](./docs/wpf-host-route.md)
 - [Project cognition](./docs/project-cognition.md)
