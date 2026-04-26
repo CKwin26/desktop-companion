@@ -172,33 +172,17 @@ public sealed class ProjectCognitionService
 
     public void MergeDigestIntoProjects(IList<ProjectMemory> knownProjects, ProjectCognitionDigest digest)
     {
+        var now = DateTimeOffset.Now;
         foreach (var project in digest.Projects.Where(project => !string.IsNullOrWhiteSpace(project.Name)))
         {
             var matched = FindBestProjectMemory(project, knownProjects);
             if (matched is null)
             {
-                knownProjects.Add(new ProjectMemory
-                {
-                    Name = project.Name,
-                    Summary = project.Summary,
-                    KindLabel = GetKindLabel(project.MatchType),
-                    PriorityLabel = GetPriorityLabel(project.Priority),
-                    NextAction = project.NextAction,
-                    Keywords = MergeStrings([], project.Keywords),
-                    RecentItems = MergeStrings([], project.Items, maxCount: 6),
-                    UpdatedAt = DateTimeOffset.Now
-                });
+                knownProjects.Add(CreateProjectMemory(project, now));
                 continue;
             }
 
-            matched.Name = string.IsNullOrWhiteSpace(matched.Name) ? project.Name : matched.Name;
-            matched.Summary = string.IsNullOrWhiteSpace(project.Summary) ? matched.Summary : project.Summary;
-            matched.KindLabel = GetKindLabel(project.MatchType);
-            matched.PriorityLabel = GetPriorityLabel(project.Priority);
-            matched.NextAction = string.IsNullOrWhiteSpace(project.NextAction) ? matched.NextAction : project.NextAction;
-            matched.Keywords = MergeStrings(matched.Keywords, project.Keywords);
-            matched.RecentItems = MergeStrings(matched.RecentItems, project.Items, maxCount: 6);
-            matched.UpdatedAt = DateTimeOffset.Now;
+            ApplyDigestToProjectMemory(matched, project, now);
         }
     }
 
@@ -387,6 +371,317 @@ public sealed class ProjectCognitionService
         }
 
         return merged;
+    }
+
+    private static ProjectMemory CreateProjectMemory(ProjectDigestProject project, DateTimeOffset now)
+    {
+        var memory = new ProjectMemory
+        {
+            Name = project.Name,
+            Summary = project.Summary,
+            KindLabel = GetKindLabel(project.MatchType),
+            PriorityLabel = GetPriorityLabel(project.Priority),
+            NextAction = project.NextAction,
+            Keywords = MergeStrings([], project.Keywords),
+            RecentItems = MergeStrings([], project.Items, maxCount: 6),
+            UpdatedAt = now
+        };
+
+        ApplyDigestState(memory, project, now);
+        return memory;
+    }
+
+    private static void ApplyDigestToProjectMemory(ProjectMemory memory, ProjectDigestProject project, DateTimeOffset now)
+    {
+        memory.Name = string.IsNullOrWhiteSpace(memory.Name) ? project.Name : memory.Name;
+        memory.Summary = string.IsNullOrWhiteSpace(project.Summary) ? memory.Summary : project.Summary;
+        memory.KindLabel = GetKindLabel(project.MatchType);
+        memory.PriorityLabel = GetPriorityLabel(project.Priority);
+        memory.NextAction = string.IsNullOrWhiteSpace(project.NextAction) ? memory.NextAction : project.NextAction;
+        memory.Keywords = MergeStrings(memory.Keywords, project.Keywords);
+        memory.RecentItems = MergeStrings(memory.RecentItems, project.Items, maxCount: 6);
+        memory.UpdatedAt = now;
+
+        ApplyDigestState(memory, project, now);
+    }
+
+    private static void ApplyDigestState(ProjectMemory memory, ProjectDigestProject project, DateTimeOffset now)
+    {
+        memory.CurrentMilestone = ChooseCurrentMilestone(memory, project);
+        memory.ExpectedDeliverable = string.IsNullOrWhiteSpace(memory.ExpectedDeliverable)
+            ? InferExpectedDeliverable(project)
+            : memory.ExpectedDeliverable;
+        memory.Blockers = MergeBlockers(memory.Blockers, InferBlockers(project.Items), 6);
+        memory.EvidenceItems = MergeEvidence(memory.EvidenceItems, BuildDigestEvidence(project, now), 16);
+        memory.LastEvidenceAt = memory.EvidenceItems.Count > 0
+            ? memory.EvidenceItems.Max(evidence => evidence.ObservedAt)
+            : memory.LastEvidenceAt ?? now;
+        memory.LastMeaningfulProgressAt = project.Items.Count > 0
+            ? now
+            : memory.LastMeaningfulProgressAt ?? memory.LastEvidenceAt ?? now;
+        memory.MomentumScore = InferMomentumScore(project, memory.Blockers.Count);
+        memory.ClarityScore = InferClarityScore(project, memory.ExpectedDeliverable, memory.CurrentMilestone);
+        memory.RiskScore = InferRiskScore(project, memory.Blockers.Count);
+        memory.DriftScore = InferDriftScore(project, memory.ExpectedDeliverable);
+        memory.ConfidenceScore = InferConfidenceScore(project);
+        memory.ProgressSnapshot = BuildProgressSnapshot(memory, project, now);
+    }
+
+    private static string ChooseCurrentMilestone(ProjectMemory memory, ProjectDigestProject project)
+    {
+        if (!string.IsNullOrWhiteSpace(project.NextAction))
+        {
+            return project.NextAction;
+        }
+
+        if (!string.IsNullOrWhiteSpace(memory.CurrentMilestone))
+        {
+            return memory.CurrentMilestone;
+        }
+
+        return project.Items.FirstOrDefault() ?? memory.NextAction;
+    }
+
+    private static string InferExpectedDeliverable(ProjectDigestProject project)
+    {
+        var joined = string.Join(" ", project.Items).ToLowerInvariant();
+        if (ContainsAny(joined, "proposal", "sop", "cv", "deck", "ppt", "paper", "doc", "slides", "report"))
+        {
+            return project.Items.FirstOrDefault(item => item.Length <= 40) ?? "working draft";
+        }
+
+        if (ContainsAny(joined, "demo", "prototype", "ui", "frontend", "app", "shell"))
+        {
+            return "working prototype";
+        }
+
+        if (ContainsAny(joined, "experiment", "eval", "benchmark", "result"))
+        {
+            return "validated result";
+        }
+
+        return string.Empty;
+    }
+
+    private static List<ProjectBlocker> InferBlockers(IEnumerable<string> items)
+    {
+        return items
+            .Where(item => ContainsAny(item, "卡", "堵", "blocked", "blocker", "waiting", "等", "没法", "不能", "问题"))
+            .Select(item => new ProjectBlocker
+            {
+                Summary = item,
+                SeverityLabel = ContainsAny(item, "blocked", "blocker", "没法", "不能") ? "high" : "medium",
+                UpdatedAt = DateTimeOffset.Now
+            })
+            .Take(3)
+            .ToList();
+    }
+
+    private static List<ProjectEvidenceItem> BuildDigestEvidence(ProjectDigestProject project, DateTimeOffset now)
+    {
+        var evidenceItems = new List<ProjectEvidenceItem>();
+
+        if (!string.IsNullOrWhiteSpace(project.Summary))
+        {
+            evidenceItems.Add(new ProjectEvidenceItem
+            {
+                SourceType = "project-digest",
+                SourceLabel = "project digest",
+                Summary = project.Summary,
+                Detail = project.Name,
+                Weight = 70,
+                IndicatesProgress = true,
+                ObservedAt = now
+            });
+        }
+
+        foreach (var item in project.Items.Take(4))
+        {
+            evidenceItems.Add(new ProjectEvidenceItem
+            {
+                SourceType = "project-digest",
+                SourceLabel = "project digest",
+                Summary = item,
+                Detail = project.Name,
+                Weight = 55,
+                IndicatesProgress = !ContainsAny(item, "卡", "blocked", "blocker", "waiting"),
+                ObservedAt = now
+            });
+        }
+
+        return evidenceItems;
+    }
+
+    private static List<ProjectEvidenceItem> MergeEvidence(
+        IEnumerable<ProjectEvidenceItem> original,
+        IEnumerable<ProjectEvidenceItem> incoming,
+        int maxCount)
+    {
+        return original
+            .Concat(incoming)
+            .Where(item => !string.IsNullOrWhiteSpace(item.Summary))
+            .GroupBy(item => $"{Normalize(item.SourceType)}::{Normalize(item.Summary)}")
+            .Select(group => group.OrderByDescending(item => item.ObservedAt).First())
+            .OrderByDescending(item => item.ObservedAt)
+            .Take(maxCount)
+            .ToList();
+    }
+
+    private static List<ProjectBlocker> MergeBlockers(
+        IEnumerable<ProjectBlocker> original,
+        IEnumerable<ProjectBlocker> incoming,
+        int maxCount)
+    {
+        return original
+            .Concat(incoming)
+            .Where(blocker => !string.IsNullOrWhiteSpace(blocker.Summary))
+            .GroupBy(blocker => Normalize(blocker.Summary))
+            .Select(group => group.OrderByDescending(blocker => blocker.UpdatedAt).First())
+            .OrderByDescending(blocker => blocker.UpdatedAt)
+            .Take(maxCount)
+            .ToList();
+    }
+
+    private static int InferMomentumScore(ProjectDigestProject project, int blockerCount)
+    {
+        var score = project.Priority switch
+        {
+            "now" => 72,
+            "later" => 38,
+            _ => 56
+        };
+
+        score += Math.Min(12, project.Items.Count * 4);
+        score -= blockerCount switch
+        {
+            >= 2 => 22,
+            1 => 12,
+            _ => 0
+        };
+
+        return ClampScore(score);
+    }
+
+    private static int InferClarityScore(ProjectDigestProject project, string expectedDeliverable, string currentMilestone)
+    {
+        var score = 18;
+        if (!string.IsNullOrWhiteSpace(project.Summary))
+        {
+            score += 18;
+        }
+
+        if (!string.IsNullOrWhiteSpace(project.NextAction))
+        {
+            score += 18;
+        }
+
+        if (!string.IsNullOrWhiteSpace(currentMilestone))
+        {
+            score += 18;
+        }
+
+        if (!string.IsNullOrWhiteSpace(expectedDeliverable))
+        {
+            score += 18;
+        }
+
+        score += Math.Min(12, project.Keywords.Count * 3);
+        return ClampScore(score);
+    }
+
+    private static int InferRiskScore(ProjectDigestProject project, int blockerCount)
+    {
+        var score = 16;
+        if (blockerCount > 0)
+        {
+            score += blockerCount >= 2 ? 42 : 25;
+        }
+
+        if (string.IsNullOrWhiteSpace(project.NextAction))
+        {
+            score += 12;
+        }
+
+        if (project.Priority == "now" && blockerCount > 0)
+        {
+            score += 8;
+        }
+
+        return ClampScore(score);
+    }
+
+    private static int InferDriftScore(ProjectDigestProject project, string expectedDeliverable)
+    {
+        var score = project.Priority == "later" ? 34 : 14;
+        if (string.IsNullOrWhiteSpace(expectedDeliverable))
+        {
+            score += 12;
+        }
+
+        if (project.Items.Count >= 4 && string.IsNullOrWhiteSpace(project.NextAction))
+        {
+            score += 10;
+        }
+
+        return ClampScore(score);
+    }
+
+    private static int InferConfidenceScore(ProjectDigestProject project)
+    {
+        var score = 24;
+        if (!string.IsNullOrWhiteSpace(project.Summary))
+        {
+            score += 15;
+        }
+
+        score += Math.Min(28, project.Items.Count * 7);
+        score += Math.Min(20, project.Keywords.Count * 4);
+        return ClampScore(score);
+    }
+
+    private static ProjectProgressSnapshot BuildProgressSnapshot(
+        ProjectMemory memory,
+        ProjectDigestProject project,
+        DateTimeOffset now)
+    {
+        var statusLabel = memory.Blockers.Count > 0
+            ? "blocked"
+            : project.Priority switch
+            {
+                "now" => "active",
+                "later" => "parked",
+                _ => "queued"
+            };
+
+        var focusSummary = !string.IsNullOrWhiteSpace(memory.CurrentMilestone)
+            ? memory.CurrentMilestone
+            : !string.IsNullOrWhiteSpace(memory.NextAction)
+                ? memory.NextAction
+                : memory.Name;
+
+        var healthSummary = memory.Blockers.Count > 0
+            ? $"Blocked by {memory.Blockers[0].Summary}"
+            : !string.IsNullOrWhiteSpace(memory.ExpectedDeliverable)
+                ? $"Target deliverable: {memory.ExpectedDeliverable}"
+                : $"Momentum {memory.MomentumScore}/100";
+
+        return new ProjectProgressSnapshot
+        {
+            StatusLabel = statusLabel,
+            FocusSummary = focusSummary,
+            HealthSummary = healthSummary,
+            UpdatedAt = now
+        };
+    }
+
+    private static int ClampScore(int value)
+    {
+        return Math.Max(0, Math.Min(100, value));
+    }
+
+    private static bool ContainsAny(string input, params string[] needles)
+    {
+        return needles.Any(needle => input.Contains(needle, StringComparison.OrdinalIgnoreCase));
     }
 
     private static ProjectMemory? FindBestKnownProject(string item, IReadOnlyList<ProjectMemory> knownProjects)

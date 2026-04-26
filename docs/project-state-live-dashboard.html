@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Project State Live Dashboard</title>
+  <style>
+    :root {
+      --bg: #f5f1e8;
+      --panel: #fffaf2;
+      --ink: #23343a;
+      --muted: #6f7d81;
+      --line: #d9d0c1;
+      --good: #5d9b87;
+      --warn: #d29a4a;
+      --bad: #d26f5b;
+      --accent: #7ca8a0;
+      --shadow: 0 18px 40px rgba(35, 52, 58, 0.12);
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      background:
+        radial-gradient(circle at top left, rgba(124,168,160,.18), transparent 28%),
+        radial-gradient(circle at bottom right, rgba(210,154,74,.16), transparent 24%),
+        var(--bg);
+      color: var(--ink);
+    }
+
+    .wrap {
+      width: min(1180px, calc(100vw - 48px));
+      margin: 28px auto 40px;
+    }
+
+    .hero {
+      background: linear-gradient(145deg, rgba(255,250,242,.95), rgba(245,241,232,.92));
+      border: 1px solid rgba(217,208,193,.9);
+      border-radius: 28px;
+      padding: 28px 30px;
+      box-shadow: var(--shadow);
+      margin-bottom: 20px;
+    }
+
+    .hero h1 {
+      margin: 0 0 10px;
+      font-size: 30px;
+      line-height: 1.15;
+    }
+
+    .hero p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 15px;
+      line-height: 1.7;
+      max-width: 900px;
+    }
+
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 14px;
+      margin: 18px 0 24px;
+    }
+
+    .summary-card {
+      background: rgba(255,255,255,.72);
+      border: 1px solid rgba(217,208,193,.8);
+      border-radius: 20px;
+      padding: 16px 18px;
+    }
+
+    .summary-card .label {
+      font-size: 12px;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 10px;
+    }
+
+    .summary-card .value {
+      font-size: 30px;
+      font-weight: 700;
+    }
+
+    .summary-card .sub {
+      color: var(--muted);
+      font-size: 13px;
+      margin-top: 6px;
+    }
+
+    .project-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 16px;
+    }
+
+    .project {
+      background: var(--panel);
+      border: 1px solid rgba(217,208,193,.92);
+      border-radius: 26px;
+      padding: 22px 20px 20px;
+      box-shadow: var(--shadow);
+      min-height: 740px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .project header {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .eyebrow {
+      color: var(--muted);
+      font-size: 12px;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+
+    .project h2 {
+      margin: 0;
+      font-size: 24px;
+      line-height: 1.25;
+    }
+
+    .badges {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 7px 12px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 600;
+      border: 1px solid transparent;
+    }
+
+    .badge.priority-high { background: rgba(93,155,135,.16); color: #336b58; border-color: rgba(93,155,135,.28); }
+    .badge.priority-mid { background: rgba(210,154,74,.16); color: #915f1f; border-color: rgba(210,154,74,.28); }
+    .badge.priority-low { background: rgba(111,125,129,.12); color: #526267; border-color: rgba(111,125,129,.22); }
+    .badge.search-required { background: rgba(210,111,91,.14); color: #974a39; border-color: rgba(210,111,91,.24); }
+    .badge.search-suggested { background: rgba(210,154,74,.16); color: #925c16; border-color: rgba(210,154,74,.26); }
+    .badge.external-collected { background: rgba(124,168,160,.16); color: #356a62; border-color: rgba(124,168,160,.28); }
+
+    .block {
+      padding: 14px 15px;
+      border-radius: 18px;
+      background: rgba(255,255,255,.7);
+      border: 1px solid rgba(217,208,193,.75);
+    }
+
+    .block h3 {
+      margin: 0 0 9px;
+      font-size: 13px;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+
+    .block p, .block li {
+      margin: 0;
+      font-size: 14px;
+      line-height: 1.65;
+    }
+
+    .metrics {
+      display: grid;
+      gap: 10px;
+    }
+
+    .metric {
+      display: grid;
+      grid-template-columns: 112px 1fr 42px;
+      align-items: center;
+      gap: 10px;
+      font-size: 13px;
+    }
+
+    .metric .name {
+      color: var(--ink);
+      font-weight: 600;
+    }
+
+    .bar {
+      height: 10px;
+      background: rgba(35,52,58,.08);
+      border-radius: 999px;
+      overflow: hidden;
+    }
+
+    .fill {
+      height: 100%;
+      border-radius: 999px;
+    }
+
+    .fill.good { background: linear-gradient(90deg, #6aa791, #83c0ac); }
+    .fill.warn { background: linear-gradient(90deg, #d29a4a, #e0b266); }
+    .fill.bad { background: linear-gradient(90deg, #cb765f, #dd8c74); }
+
+    .metric .value {
+      text-align: right;
+      color: var(--muted);
+      font-weight: 700;
+    }
+
+    .refs {
+      display: grid;
+      gap: 10px;
+    }
+
+    .ref {
+      padding: 12px 13px;
+      border-radius: 16px;
+      background: rgba(35,52,58,.04);
+      border: 1px solid rgba(217,208,193,.8);
+    }
+
+    .ref .host {
+      font-size: 12px;
+      color: var(--muted);
+      margin-bottom: 5px;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+
+    .ref a {
+      color: var(--ink);
+      text-decoration: none;
+      font-size: 14px;
+      line-height: 1.5;
+      font-weight: 600;
+    }
+
+    .ref a:hover { text-decoration: underline; }
+
+    .callout {
+      margin-top: 20px;
+      background: linear-gradient(145deg, rgba(255,250,242,.96), rgba(247,239,229,.92));
+      border: 1px solid rgba(217,208,193,.92);
+      border-radius: 24px;
+      padding: 20px 22px;
+      box-shadow: var(--shadow);
+    }
+
+    .callout h2 {
+      margin: 0 0 10px;
+      font-size: 22px;
+    }
+
+    .callout ul {
+      margin: 0;
+      padding-left: 18px;
+      color: var(--ink);
+      line-height: 1.7;
+    }
+
+    @media (max-width: 1040px) {
+      .summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .project-grid { grid-template-columns: 1fr; }
+      .project { min-height: auto; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <section class="hero">
+      <h1>Project State Live Dashboard</h1>
+      <p>这页不是旧的 <code>projects.json</code> 落盘快照，而是用当前代码链在 <strong>2026-04-24</strong> 现场重算出来的状态结果。重点看两件事：一是现在的 <code>NeedSearch / Confidence / Risk</code> 怎么落；二是“真实外搜”虽然已经接上，但 query 还明显会偏航。</p>
+    </section>
+
+    <section class="summary-grid">
+      <div class="summary-card">
+        <div class="label">Projects</div>
+        <div class="value">3</div>
+        <div class="sub">当前 probe 到的活跃项目</div>
+      </div>
+      <div class="summary-card">
+        <div class="label">Required Search</div>
+        <div class="value">2</div>
+        <div class="sub">两条线被判定必须外搜</div>
+      </div>
+      <div class="summary-card">
+        <div class="label">Avg Confidence</div>
+        <div class="value">44</div>
+        <div class="sub">整体置信度偏低，说明本地证据还薄</div>
+      </div>
+      <div class="summary-card">
+        <div class="label">Query Drift</div>
+        <div class="value">High</div>
+        <div class="sub">前两条外搜结果明显跑偏</div>
+      </div>
+    </section>
+
+    <section class="project-grid">
+      <article class="project">
+        <header>
+          <div class="eyebrow">Project 01</div>
+          <h2>重叠语音端到端系统（合成→真实会议）</h2>
+          <div class="badges">
+            <span class="badge priority-low">Priority: 先挂着</span>
+            <span class="badge search-suggested">Search: suggested</span>
+            <span class="badge external-collected">External: collected</span>
+          </div>
+        </header>
+
+        <div class="block">
+          <h3>Current Focus</h3>
+          <p>写一页最小端到端 baseline 方案，在 BSS/TSE 中先定一条，指定 ASR、数据、cpCER 目标与 smoke test。</p>
+        </div>
+
+        <div class="block metrics">
+          <h3>Score Bars</h3>
+          <div class="metric"><div class="name">Understanding</div><div class="bar"><div class="fill warn" style="width:60%"></div></div><div class="value">60</div></div>
+          <div class="metric"><div class="name">Evidence</div><div class="bar"><div class="fill bad" style="width:10%"></div></div><div class="value">10</div></div>
+          <div class="metric"><div class="name">External</div><div class="bar"><div class="fill good" style="width:78%"></div></div><div class="value">78</div></div>
+          <div class="metric"><div class="name">Execution</div><div class="bar"><div class="fill good" style="width:62%"></div></div><div class="value">62</div></div>
+          <div class="metric"><div class="name">Risk</div><div class="bar"><div class="fill bad" style="width:17%"></div></div><div class="value">17</div></div>
+          <div class="metric"><div class="name">Confidence</div><div class="bar"><div class="fill warn" style="width:41%"></div></div><div class="value">41</div></div>
+          <div class="metric"><div class="name">NeedSearch</div><div class="bar"><div class="fill warn" style="width:58%"></div></div><div class="value">58</div></div>
+        </div>
+
+        <div class="block">
+          <h3>Search Decision</h3>
+          <p>NeedSearch=58/100 because internal understanding is still weak, local evidence coverage is thin.</p>
+        </div>
+
+        <div class="block refs">
+          <h3>External Refs</h3>
+          <div class="ref"><div class="host">uspizza.my</div><a href="https://uspizza.my/store-location/">Our Pizza Store Location | US PIZZA Malaysia</a></div>
+          <div class="ref"><div class="host">dominos.co.uk</div><a href="https://www.dominos.co.uk/">Order Pizza Delivery &amp; Takeaway Near You | Domino's Pizza</a></div>
+          <div class="ref"><div class="host">pizzahut.co.uk</div><a href="https://www.pizzahut.co.uk/">Pizza Delivery &amp; Takeaway Near You | Pizza Hut UK</a></div>
+        </div>
+      </article>
+
+      <article class="project">
+        <header>
+          <div class="eyebrow">Project 02</div>
+          <h2>AliMeeting 会话级数据准备与映射工具</h2>
+          <div class="badges">
+            <span class="badge priority-mid">Priority: 下一顺位</span>
+            <span class="badge search-required">Search: required</span>
+            <span class="badge external-collected">External: collected</span>
+          </div>
+        </header>
+
+        <div class="block">
+          <h3>Current Focus</h3>
+          <p>确认 corpus_dir 与输出规范，跑 manifest 与音频索引脚本，并校验 missing 列表为空。</p>
+        </div>
+
+        <div class="block metrics">
+          <h3>Score Bars</h3>
+          <div class="metric"><div class="name">Understanding</div><div class="bar"><div class="fill warn" style="width:60%"></div></div><div class="value">60</div></div>
+          <div class="metric"><div class="name">Evidence</div><div class="bar"><div class="fill bad" style="width:10%"></div></div><div class="value">10</div></div>
+          <div class="metric"><div class="name">External</div><div class="bar"><div class="fill good" style="width:78%"></div></div><div class="value">78</div></div>
+          <div class="metric"><div class="name">Execution</div><div class="bar"><div class="fill good" style="width:60%"></div></div><div class="value">60</div></div>
+          <div class="metric"><div class="name">Risk</div><div class="bar"><div class="fill bad" style="width:17%"></div></div><div class="value">17</div></div>
+          <div class="metric"><div class="name">Confidence</div><div class="bar"><div class="fill warn" style="width:41%"></div></div><div class="value">41</div></div>
+          <div class="metric"><div class="name">NeedSearch</div><div class="bar"><div class="fill bad" style="width:62%"></div></div><div class="value">62</div></div>
+        </div>
+
+        <div class="block">
+          <h3>Search Decision</h3>
+          <p>NeedSearch=62/100 because internal understanding is still weak, local evidence coverage is thin.</p>
+        </div>
+
+        <div class="block refs">
+          <h3>External Refs</h3>
+          <div class="ref"><div class="host">1mg.com</div><a href="https://www.1mg.com/otc/carbamide-forte-methylcobalamin-vitamin-b12-1500mcg-for-digestion-brain-immunity-tablet-otc690461">Carbamide Forte Methylcobalamin Tablet - 1mg</a></div>
+          <div class="ref"><div class="host">amazon.in</div><a href="https://www.amazon.in/vitamin-b12-supplements/s?k=vitamin+b12+supplements">Buy Vitamin B12 Pills Online - Amazon.in</a></div>
+          <div class="ref"><div class="host">flipkart.com</div><a href="https://www.flipkart.com/health-care/health-supplements/vitamin-supplement/vitamin-b12~type/pr?sid=hlc,etg,qtw">Buy Vitamin B12 Supplement Online From Flipkart</a></div>
+        </div>
+      </article>
+
+      <article class="project">
+        <header>
+          <div class="eyebrow">Project 03</div>
+          <h2>MISP-2025 风格 cpCER 基准与评估栈</h2>
+          <div class="badges">
+            <span class="badge priority-high">Priority: 先动</span>
+            <span class="badge search-required">Search: required</span>
+            <span class="badge external-collected">External: collected</span>
+          </div>
+        </header>
+
+        <div class="block">
+          <h3>Current Focus</h3>
+          <p>选 1–2 个 AliMeeting 会话跑 hypothesis 与 cpCER 报告，并固化公开 benchmark 输出口径。</p>
+        </div>
+
+        <div class="block metrics">
+          <h3>Score Bars</h3>
+          <div class="metric"><div class="name">Understanding</div><div class="bar"><div class="fill warn" style="width:60%"></div></div><div class="value">60</div></div>
+          <div class="metric"><div class="name">Evidence</div><div class="bar"><div class="fill bad" style="width:10%"></div></div><div class="value">10</div></div>
+          <div class="metric"><div class="name">External</div><div class="bar"><div class="fill good" style="width:90%"></div></div><div class="value">90</div></div>
+          <div class="metric"><div class="name">Execution</div><div class="bar"><div class="fill good" style="width:60%"></div></div><div class="value">60</div></div>
+          <div class="metric"><div class="name">Risk</div><div class="bar"><div class="fill bad" style="width:20%"></div></div><div class="value">20</div></div>
+          <div class="metric"><div class="name">Confidence</div><div class="bar"><div class="fill warn" style="width:49%"></div></div><div class="value">49</div></div>
+          <div class="metric"><div class="name">NeedSearch</div><div class="bar"><div class="fill bad" style="width:67%"></div></div><div class="value">67</div></div>
+        </div>
+
+        <div class="block">
+          <h3>Search Decision</h3>
+          <p>NeedSearch=67/100 because internal understanding is still weak, local evidence coverage is thin, current picture may be stale, outside standards likely matter.</p>
+        </div>
+
+        <div class="block refs">
+          <h3>External Refs</h3>
+          <div class="ref"><div class="host">github.com</div><a href="https://github.com/MISP/MISP">GitHub - MISP/MISP: MISP (core software)</a></div>
+          <div class="ref"><div class="host">misp.github.io</div><a href="http://misp.github.io/MISP/">Welcome to the official MISP Install Guides</a></div>
+          <div class="ref"><div class="host">wikipedia.org</div><a href="https://en.wikipedia.org/wiki/MISP_Threat_Sharing">MISP Threat Sharing - Wikipedia</a></div>
+        </div>
+      </article>
+    </section>
+
+    <section class="callout">
+      <h2>这页最重要的结论</h2>
+      <ul>
+        <li>现在的链路已经不是“不会外搜”，而是“会外搜，但 query 还不够懂项目”。</li>
+        <li>三个项目的 <code>Understanding</code> 都只有 60、<code>Evidence</code> 都只有 10，说明本地状态模型还太依赖标题和 next step。</li>
+        <li>前两条线的外部结果明显跑偏，第三条抓到了 acronym collision，这正是下一轮该修的地方。</li>
+      </ul>
+    </section>
+  </div>
+</body>
+</html>

@@ -1,4 +1,4 @@
-using System.Collections.ObjectModel;
+﻿using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.IO;
 using System.Runtime.CompilerServices;
@@ -60,6 +60,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
 
     private DateTimeOffset _nextReviewAt;
     private DateTimeOffset? _focusSprintEndsAt;
+    private DateTimeOffset _lastCodexThreadSyncAt = DateTimeOffset.MinValue;
     private WorkspaceIngestionService.DirectorySurfaceResult? _lastDirectorySurface;
     private string? _pendingDirectoryPath;
     private string? _pendingDirectoryLabel;
@@ -86,6 +87,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     private string _panelSummary = "现在这里只有一块主聊天面板。你先说话，团子再替你记事。";
     private string _panelHint = "可以直接说心情，也可以直接交待任务。";
     private string _chatInput = string.Empty;
+    private readonly TimeSpan _codexThreadSyncCadence = TimeSpan.FromSeconds(20);
     private string _rhythmStatusLine = "自动提醒已关闭。";
     private string _focusSprintStatusLine = "专注冲刺还没开始。";
 
@@ -465,7 +467,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         {
             if (!TryResolveWorkspaceForCodex(input, out var toolWorkspacePath))
             {
-                const string missingWorkspaceReply = "你先把项目路径发给我，或者先让我记住一个已授权项目目录，我再替你在 VS Code 里打开。";
+                const string missingWorkspaceReply = "我这轮还没从当前对话、活跃工作区或最近 Codex 项目里推到明确目录。你如果是要切到别的地方，再把路径发我，我就直接替你在 VS Code 里打开。";
                 AddConversation(ConversationRole.Companion, missingWorkspaceReply);
                 RefreshDashboard(missingWorkspaceReply);
                 return;
@@ -491,8 +493,9 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
 
         if (LooksLikeCodexWorkspaceOverviewRequest(input))
         {
+            SyncProjectsFromCodexThreadIndex(force: true);
             var overview = _localCodexThreadIndexService.BuildOverview();
-            var overviewReply = BuildCodexWorkspaceOverviewReply(overview);
+            var overviewReply = BuildCodexWorkspaceOverviewReply(overview, GetOrderedProjects());
             AddConversation(ConversationRole.Companion, overviewReply);
             RefreshDashboard(overviewReply);
             return;
@@ -502,7 +505,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         {
             if (!TryResolveWorkspaceForExternalTools(input, out var toolWorkspacePath))
             {
-                const string missingWorkspaceReply = "你先把项目路径发给我，或者先让我记住一个已授权项目目录，我再把任务交给 Codex。";
+                const string missingWorkspaceReply = "我这轮还没从当前对话、活跃工作区或最近 Codex 项目里推到明确目录。你如果是要别的项目，再把路径发我；不然我就默认继续按你现在最活跃的项目来交给 Codex。";
                 AddConversation(ConversationRole.Companion, missingWorkspaceReply);
                 RefreshDashboard(missingWorkspaceReply);
                 return;
@@ -578,7 +581,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         {
             if (!_workspaceIngestionService.TryExtractWorkspacePath(input, out var directoryPath))
             {
-                const string missingDirectoryReply = "你要我看本地目录时，直接把具体路径发我也行；如果就是桌面，直接说“看看桌面有什么”就可以。";
+                const string missingDirectoryReply = "你要我看本地目录时，直接把具体路径发我也行；如果就是桌面，直接说“看看桌面有什么”，如果是当前项目，也可以直接说“看看现在这个项目”。";
                 AddConversation(ConversationRole.Companion, missingDirectoryReply);
                 RefreshDashboard(missingDirectoryReply);
                 return;
@@ -651,6 +654,10 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
                 GetOrderedTasks(),
                 SupervisionEnabled,
                 _focusSprintEndsAt is not null);
+        }
+        else if (await TryHandleStructuredProjectScopedFallbackAsync(input))
+        {
+            return;
         }
         else
         {
@@ -827,14 +834,13 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
 
     public string OpenLatestWorkspaceInVsCode()
     {
-        var workspacePath = _workspaceSources
-            .OrderByDescending(source => source.LastScannedAt)
-            .Select(source => source.Path)
-            .FirstOrDefault(path => !string.IsNullOrWhiteSpace(path));
-
-        if (string.IsNullOrWhiteSpace(workspacePath))
+        if (!TryResolveWorkspaceFromKnownContext(
+                out var workspacePath,
+                forceFreshCodexSync: true,
+                allowDriveRootWorkspace: true,
+                allowAppRepositoryRoot: false))
         {
-            return "我这边还没有记住任何项目目录。你先把一个项目路径发给我，或者先授权我记住目录。";
+            return "我这边还没从当前对话、活跃工作区或最近 Codex 项目里推到明确目录。你如果要切到别的地方，再把路径发我。";
         }
 
         return _vsCodeBridgeService.TryOpenWorkspace(workspacePath, out var reply)
@@ -867,8 +873,8 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         };
         if (_workspaceSources.Count == 0)
         {
-            PanelHint = "第一次可以直接把项目文件夹路径发给团子，比如 C:\\Users\\...\\项目名。她会先读文档，再帮你梳理项目线。";
-            EnsureRecentCompanionPrompt("第一次启动时，你可以直接把正在做的项目文件夹路径发给我。我会去读里面的 README、总结和说明文档，再先帮你理出项目线。");
+            PanelHint = "第一次可以直接说“看看现在这个项目”；如果你要切去别的目录，再把路径发给团子。她会先读结构和关键文档，再帮你梳理项目线。";
+            EnsureRecentCompanionPrompt("第一次启动时，你可以直接说“看看现在这个项目”。如果你要我读别的目录，再把项目文件夹路径发给我。我会先读结构、README、总结和说明文档，再帮你理出项目线。");
         }
     }
 
@@ -1069,6 +1075,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
 
     private void RefreshDashboard(string? whisperOverride = null)
     {
+        SyncProjectsFromCodexThreadIndex();
         var orderedTasks = GetOrderedTasks();
 
         RebuildConversationMessages();
@@ -1135,7 +1142,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         {
             Mood = PetMood.Idle;
             MoodLabel = "记着项目线";
-            StatusLine = $"我还记得你手里挂着“{_projects.OrderByDescending(project => project.UpdatedAt).First().Name}”这条。";
+            StatusLine = $"我还记得你手里挂着“{GetProjectDisplayLabel(GetOrderedProjects().First())}”这条。";
             AccentBrush = CreateBrush("#FF6A8DB7");
             AccentTintBrush = CreateBrush("#336A8DB7");
             WhisperBrush = CreateBrush("#CC30465D");
@@ -1202,18 +1209,18 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
 
         foreach (var project in GetOrderedProjects().Take(3 - RecentMemoryCards.Count))
         {
-            var note = !string.IsNullOrWhiteSpace(project.NextAction)
-                ? $"下一步：{project.NextAction}"
+            var note = !string.IsNullOrWhiteSpace(project.RecentCodexThreadTitles.FirstOrDefault())
+                ? $"Codex 最近：{project.RecentCodexThreadTitles.FirstOrDefault()}"
+                : !string.IsNullOrWhiteSpace(project.NextAction)
+                    ? $"下一步：{project.NextAction}"
                 : !string.IsNullOrWhiteSpace(project.Summary)
                     ? project.Summary
                 : project.RecentItems.FirstOrDefault() ?? "这条项目线已经被团子记住了。";
 
             RecentMemoryCards.Add(new RecentMemoryViewModel(
-                project.Name,
+                GetProjectDisplayLabel(project),
                 note,
-                string.IsNullOrWhiteSpace(project.PriorityLabel)
-                    ? project.KindLabel
-                    : $"{project.KindLabel} · {project.PriorityLabel}",
+                GetProjectMemoryStateLabel(project),
                 CreateBrush("#FF6A8DB7"),
                 CreateBrush("#336A8DB7")));
         }
@@ -1314,7 +1321,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     private IReadOnlyList<string> BuildProjectSuggestionTexts()
     {
         var leadProject = GetOrderedProjects().FirstOrDefault();
-        var focusText = TrimForBubble(leadProject?.NextAction ?? leadProject?.Name, 14);
+        var focusText = TrimForBubble(GetLeadProjectFocus(leadProject), 14);
 
         if (_workspaceSources.Count > 0)
         {
@@ -1353,6 +1360,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     {
         var storedProjects = _projectStore.LoadProjects();
         _projects.AddRange(storedProjects);
+        SyncProjectsFromCodexThreadIndex(force: true);
     }
 
     private void LoadWorkspaceSources()
@@ -1483,10 +1491,338 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         _conversationStore.SaveMessages(_conversationHistory);
     }
 
+    private bool SyncProjectsFromCodexThreadIndex(bool force = false)
+    {
+        var now = DateTimeOffset.Now;
+        if (!force && now - _lastCodexThreadSyncAt < _codexThreadSyncCadence)
+        {
+            return false;
+        }
+
+        _lastCodexThreadSyncAt = now;
+        var overview = _localCodexThreadIndexService.BuildOverview(24);
+        if (!overview.IsSuccess)
+        {
+            return false;
+        }
+
+        var changed = false;
+        foreach (var workspace in overview.Workspaces)
+        {
+            changed |= UpsertProjectFromCodexWorkspace(workspace);
+        }
+
+        if (changed)
+        {
+            PersistProjects();
+        }
+
+        return changed;
+    }
+
+    private bool UpsertProjectFromCodexWorkspace(LocalCodexThreadIndexService.CodexWorkspaceSummary workspace)
+    {
+        var project = FindBestProjectForCodexWorkspace(workspace);
+        if (ShouldForceSeparateCodexWorkspace(project, workspace))
+        {
+            var changed = ClearCodexWorkspaceBinding(project!);
+            var syntheticProject = _projects.FirstOrDefault(candidate => IsSyntheticCodexProjectForWorkspace(candidate, workspace));
+            if (syntheticProject is null)
+            {
+                _projects.Add(CreateProjectMemoryFromCodexWorkspace(workspace));
+                return true;
+            }
+
+            return UpsertCodexWorkspaceFields(syntheticProject, workspace) || changed;
+        }
+
+        if (project is null)
+        {
+            _projects.Add(CreateProjectMemoryFromCodexWorkspace(workspace));
+            return true;
+        }
+
+        return UpsertCodexWorkspaceFields(project, workspace);
+    }
+
+    private bool UpsertCodexWorkspaceFields(ProjectMemory project, LocalCodexThreadIndexService.CodexWorkspaceSummary workspace)
+    {
+        var changed = false;
+        changed |= UpdateProjectString(project.CodexWorkspacePath, workspace.Cwd, value => project.CodexWorkspacePath = value);
+        changed |= UpdateProjectString(project.CodexWorkspaceLabel, workspace.Label, value => project.CodexWorkspaceLabel = value);
+        changed |= UpdateProjectString(
+            project.PrimaryWorkspacePath,
+            string.IsNullOrWhiteSpace(project.PrimaryWorkspacePath) ? workspace.Cwd : project.PrimaryWorkspacePath,
+            value => project.PrimaryWorkspacePath = value);
+        changed |= UpdateProjectString(
+            project.PrimaryWorkspaceLabel,
+            string.IsNullOrWhiteSpace(project.PrimaryWorkspaceLabel) ? workspace.Label : project.PrimaryWorkspaceLabel,
+            value => project.PrimaryWorkspaceLabel = value);
+        changed |= UpdateProjectString(
+            project.WorkspaceKindLabel,
+            string.IsNullOrWhiteSpace(project.WorkspaceKindLabel) ? "Codex workspace" : project.WorkspaceKindLabel,
+            value => project.WorkspaceKindLabel = value);
+
+        if (project.CodexThreadCount != workspace.ThreadCount)
+        {
+            project.CodexThreadCount = workspace.ThreadCount;
+            changed = true;
+        }
+
+        if (project.LastCodexThreadAt != workspace.LastUpdatedAt)
+        {
+            project.LastCodexThreadAt = workspace.LastUpdatedAt;
+            changed = true;
+        }
+
+        var mergedTitles = MergeProjectStrings(project.RecentCodexThreadTitles, workspace.RecentTitles, 6);
+        if (!project.RecentCodexThreadTitles.SequenceEqual(mergedTitles))
+        {
+            project.RecentCodexThreadTitles = mergedTitles;
+            changed = true;
+        }
+
+        var mergedKeywords = MergeProjectStrings(project.Keywords, [workspace.Label], 10);
+        if (!project.Keywords.SequenceEqual(mergedKeywords))
+        {
+            project.Keywords = mergedKeywords;
+            changed = true;
+        }
+
+        var mergedRecentItems = MergeProjectStrings(project.RecentItems, workspace.RecentTitles, 8);
+        if (!project.RecentItems.SequenceEqual(mergedRecentItems))
+        {
+            project.RecentItems = mergedRecentItems;
+            changed = true;
+        }
+
+        if (string.IsNullOrWhiteSpace(project.NextAction) && workspace.RecentTitles.Count > 0)
+        {
+            project.NextAction = workspace.RecentTitles[0];
+            changed = true;
+        }
+
+        if (string.IsNullOrWhiteSpace(project.CurrentMilestone) && workspace.RecentTitles.Count > 0)
+        {
+            project.CurrentMilestone = workspace.RecentTitles[0];
+            changed = true;
+        }
+
+        if (changed && workspace.LastUpdatedAt > project.UpdatedAt)
+        {
+            project.UpdatedAt = workspace.LastUpdatedAt;
+        }
+
+        return changed;
+    }
+
+    private bool ShouldForceSeparateCodexWorkspace(
+        ProjectMemory? project,
+        LocalCodexThreadIndexService.CodexWorkspaceSummary workspace)
+    {
+        return project is not null
+               && LooksLikeDriveRootWorkspace(workspace)
+               && !IsSyntheticCodexProjectForWorkspace(project, workspace);
+    }
+
+    private static bool LooksLikeDriveRootWorkspace(LocalCodexThreadIndexService.CodexWorkspaceSummary workspace)
+    {
+        return Regex.IsMatch(workspace.Label ?? string.Empty, "^[A-Za-z]:$");
+    }
+
+    private static bool IsSyntheticCodexProjectForWorkspace(
+        ProjectMemory project,
+        LocalCodexThreadIndexService.CodexWorkspaceSummary workspace)
+    {
+        return string.Equals(project.CodexWorkspacePath, workspace.Cwd, StringComparison.OrdinalIgnoreCase)
+               && string.Equals(project.CodexWorkspaceLabel, workspace.Label, StringComparison.OrdinalIgnoreCase)
+               && IsSyntheticCodexProject(project);
+    }
+
+    private static bool IsSyntheticCodexProject(ProjectMemory project)
+    {
+        return string.Equals(project.Name, project.CodexWorkspaceLabel, StringComparison.OrdinalIgnoreCase)
+               && project.Summary.StartsWith("Synced from Codex workspace", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool ClearCodexWorkspaceBinding(ProjectMemory project)
+    {
+        var changed = false;
+
+        changed |= UpdateProjectString(project.CodexWorkspacePath, string.Empty, value => project.CodexWorkspacePath = value);
+        changed |= UpdateProjectString(project.CodexWorkspaceLabel, string.Empty, value => project.CodexWorkspaceLabel = value);
+
+        if (project.CodexThreadCount != 0)
+        {
+            project.CodexThreadCount = 0;
+            changed = true;
+        }
+
+        if (project.LastCodexThreadAt is not null)
+        {
+            project.LastCodexThreadAt = null;
+            changed = true;
+        }
+
+        if (project.RecentCodexThreadTitles.Count > 0)
+        {
+            project.RecentCodexThreadTitles = [];
+            changed = true;
+        }
+
+        return changed;
+    }
+
+    private static bool ShouldIncludeAsRememberedProject(ProjectMemory project)
+    {
+        if (IsSyntheticCodexProject(project))
+        {
+            return false;
+        }
+
+        if (LooksLikeDriveRootLabel(project))
+        {
+            return false;
+        }
+
+        return !string.IsNullOrWhiteSpace(project.Name)
+               || !string.IsNullOrWhiteSpace(project.Summary)
+               || !string.IsNullOrWhiteSpace(project.NextAction);
+    }
+
+    private ProjectMemory? FindBestProjectForCodexWorkspace(LocalCodexThreadIndexService.CodexWorkspaceSummary workspace)
+    {
+        var normalizedLabel = NormalizeForMatch(workspace.Label);
+
+        return _projects
+            .Select(project => new
+            {
+                Project = project,
+                Score = GetCodexWorkspaceProjectScore(project, workspace.Cwd, workspace.Label, normalizedLabel)
+            })
+            .Where(item => item.Score >= 60)
+            .OrderByDescending(item => item.Score)
+            .ThenByDescending(item => item.Project.UpdatedAt)
+            .Select(item => item.Project)
+            .FirstOrDefault();
+    }
+
+    private static int GetCodexWorkspaceProjectScore(
+        ProjectMemory project,
+        string workspacePath,
+        string workspaceLabel,
+        string normalizedLabel)
+    {
+        var hasConflictingPrimaryIdentity =
+            !string.IsNullOrWhiteSpace(project.PrimaryWorkspacePath)
+            && !string.Equals(project.PrimaryWorkspacePath, workspacePath, StringComparison.OrdinalIgnoreCase)
+            && !string.IsNullOrWhiteSpace(project.PrimaryWorkspaceLabel)
+            && !string.Equals(project.PrimaryWorkspaceLabel, workspaceLabel, StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(project.Name, workspaceLabel, StringComparison.OrdinalIgnoreCase);
+
+        if (hasConflictingPrimaryIdentity)
+        {
+            return 0;
+        }
+
+        var score = 0;
+        if (string.Equals(project.CodexWorkspacePath, workspacePath, StringComparison.OrdinalIgnoreCase))
+        {
+            score += 100;
+        }
+
+        if (string.Equals(project.PrimaryWorkspacePath, workspacePath, StringComparison.OrdinalIgnoreCase))
+        {
+            score += 96;
+        }
+
+        score = Math.Max(score, GetNormalizedLabelScore(project.CodexWorkspaceLabel, normalizedLabel, 88));
+        score = Math.Max(score, GetNormalizedLabelScore(project.PrimaryWorkspaceLabel, normalizedLabel, 84));
+        score = Math.Max(score, GetNormalizedLabelScore(project.Name, normalizedLabel, 78));
+
+        if (project.Keywords.Any(keyword => NormalizeForMatch(keyword) == normalizedLabel))
+        {
+            score = Math.Max(score, 72);
+        }
+
+        if (!string.IsNullOrWhiteSpace(normalizedLabel))
+        {
+            var normalizedName = NormalizeForMatch(project.Name);
+            if (!string.IsNullOrWhiteSpace(normalizedName)
+                && (normalizedName.Contains(normalizedLabel, StringComparison.OrdinalIgnoreCase)
+                    || normalizedLabel.Contains(normalizedName, StringComparison.OrdinalIgnoreCase)))
+            {
+                score = Math.Max(score, 62);
+            }
+        }
+
+        return score;
+    }
+
+    private static int GetNormalizedLabelScore(string source, string normalizedLabel, int exactScore)
+    {
+        return string.IsNullOrWhiteSpace(source) || string.IsNullOrWhiteSpace(normalizedLabel)
+            ? 0
+            : NormalizeForMatch(source) == normalizedLabel
+                ? exactScore
+                : 0;
+    }
+
+    private static ProjectMemory CreateProjectMemoryFromCodexWorkspace(LocalCodexThreadIndexService.CodexWorkspaceSummary workspace)
+    {
+        var focus = workspace.RecentTitles.FirstOrDefault() ?? string.Empty;
+        return new ProjectMemory
+        {
+            Name = workspace.Label,
+            Summary = $"Synced from Codex workspace {workspace.Label}",
+            KindLabel = "Codex 项目",
+            NextAction = focus,
+            CurrentMilestone = focus,
+            PrimaryWorkspacePath = workspace.Cwd,
+            PrimaryWorkspaceLabel = workspace.Label,
+            WorkspaceKindLabel = "Codex workspace",
+            CodexWorkspacePath = workspace.Cwd,
+            CodexWorkspaceLabel = workspace.Label,
+            CodexThreadCount = workspace.ThreadCount,
+            LastCodexThreadAt = workspace.LastUpdatedAt,
+            Keywords = MergeProjectStrings([], [workspace.Label], 10),
+            RecentItems = MergeProjectStrings([], workspace.RecentTitles, 8),
+            RecentCodexThreadTitles = MergeProjectStrings([], workspace.RecentTitles, 6),
+            UpdatedAt = workspace.LastUpdatedAt
+        };
+    }
+
+    private static List<string> MergeProjectStrings(
+        IEnumerable<string> existing,
+        IEnumerable<string> incoming,
+        int maxCount)
+    {
+        return existing
+            .Concat(incoming)
+            .Select(value => value?.Trim() ?? string.Empty)
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Take(maxCount)
+            .ToList();
+    }
+
+    private static bool UpdateProjectString(string currentValue, string value, Action<string> assign)
+    {
+        var normalized = value?.Trim() ?? string.Empty;
+        if (string.Equals(currentValue, normalized, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        assign(normalized);
+        return true;
+    }
+
     private IReadOnlyList<ProjectMemory> GetOrderedProjects()
     {
         return _projects
-            .OrderBy(project => GetProjectPriorityRank(project.PriorityLabel))
+            .OrderByDescending(project => project.LastCodexThreadAt ?? DateTimeOffset.MinValue)
+            .ThenBy(project => GetProjectPriorityRank(project.PriorityLabel))
             .ThenByDescending(project => project.UpdatedAt)
             .ThenBy(project => project.Name)
             .ToList();
@@ -1519,7 +1855,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             _permissionProfile.CanBuildPersonalProfileFromPrivateSources = false;
             _permissionProfile.PresetLabel = "只读指定目录";
             PersistPermissionProfile();
-            reply = "好，我可以读你临时指定的项目目录，但不会记住路径，也不会默认把项目线长期存下来。现在你可以把文件夹路径发给我。";
+            reply = "好，我可以读你临时指定的项目目录，但不会记住路径，也不会默认把项目线长期存下来。你现在直接说“看看现在这个项目”也行；如果是别的目录，再把路径发给我。";
             return true;
         }
 
@@ -1533,7 +1869,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             _permissionProfile.CanBuildPersonalProfileFromPrivateSources = false;
             _permissionProfile.PresetLabel = "读目录并记住路径";
             PersistPermissionProfile();
-            reply = "好，我可以读你指定的目录，也可以记住你授权过的路径，但我暂时不把文档内容自动沉淀成长期项目记忆。现在把项目目录发给我就行。";
+            reply = "好，我可以读你指定的目录，也可以记住你授权过的路径，但我暂时不把文档内容自动沉淀成长期项目记忆。你现在直接说“看看现在这个项目”也行；如果是别的目录，再把路径发给我。";
             return true;
         }
 
@@ -1547,7 +1883,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             _permissionProfile.CanBuildPersonalProfileFromPrivateSources = false;
             _permissionProfile.PresetLabel = "读目录并梳理项目线";
             PersistPermissionProfile();
-            reply = "好，这套权限下我可以读你指定的目录，记住你授权过的路径，并把文档内容整理成项目线和下一步。现在把项目文件夹路径发给我吧。";
+            reply = "好，这套权限下我可以读你指定的目录，记住你授权过的路径，并把文档内容整理成项目线和下一步。你现在直接说“看看现在这个项目”也行；如果是别的目录，再把路径发给我。";
             return true;
         }
 
@@ -1811,12 +2147,11 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
 
         if (looksLikeUnderstanding)
         {
-            if (TryResolvePendingWorkspace(out workspacePath))
-            {
-                return true;
-            }
-
-            if (TryResolveActiveWorkspace(out workspacePath))
+            if (TryResolveWorkspaceFromKnownContext(
+                    out workspacePath,
+                    forceFreshCodexSync: true,
+                    allowDriveRootWorkspace: true,
+                    allowAppRepositoryRoot: false))
             {
                 return true;
             }
@@ -1824,12 +2159,11 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
 
         if (looksLikeContinuation)
         {
-            if (TryResolvePendingWorkspace(out workspacePath))
-            {
-                return true;
-            }
-
-            if (TryResolveActiveWorkspace(out workspacePath))
+            if (TryResolveWorkspaceFromKnownContext(
+                    out workspacePath,
+                    forceFreshCodexSync: true,
+                    allowDriveRootWorkspace: true,
+                    allowAppRepositoryRoot: false))
             {
                 return true;
             }
@@ -1958,6 +2292,134 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         return true;
     }
 
+    private bool TryResolveWorkspaceFromKnownContext(
+        out string workspacePath,
+        bool forceFreshCodexSync = false,
+        bool allowDriveRootWorkspace = true,
+        bool allowAppRepositoryRoot = false)
+    {
+        workspacePath = string.Empty;
+
+        if (TryResolvePendingWorkspace(out workspacePath))
+        {
+            return true;
+        }
+
+        if (TryResolveActiveWorkspace(out workspacePath))
+        {
+            return true;
+        }
+
+        if (TryResolveRecentCodexWorkspace(
+                out workspacePath,
+                allowDriveRootWorkspace: allowDriveRootWorkspace,
+                forceFreshCodexSync: forceFreshCodexSync))
+        {
+            return true;
+        }
+
+        workspacePath = _workspaceSources
+            .OrderByDescending(source => source.LastScannedAt)
+            .Select(source => source.Path)
+            .FirstOrDefault(path => !string.IsNullOrWhiteSpace(path) && Directory.Exists(path))
+            ?? string.Empty;
+
+        if (!string.IsNullOrWhiteSpace(workspacePath)
+            && (allowDriveRootWorkspace || !LooksLikeDriveRootPath(workspacePath)))
+        {
+            return true;
+        }
+
+        if (allowAppRepositoryRoot
+            && TryResolveAppRepositoryRoot(out workspacePath)
+            && (allowDriveRootWorkspace || !LooksLikeDriveRootPath(workspacePath)))
+        {
+            return true;
+        }
+
+        workspacePath = string.Empty;
+        return false;
+    }
+
+    private bool TryResolveRecentCodexWorkspace(
+        out string workspacePath,
+        bool allowDriveRootWorkspace = true,
+        bool forceFreshCodexSync = false)
+    {
+        workspacePath = string.Empty;
+        if (!TryResolveRecentCodexProject(
+                out var project,
+                allowDriveRootWorkspace: allowDriveRootWorkspace,
+                forceFreshCodexSync: forceFreshCodexSync))
+        {
+            return false;
+        }
+
+        workspacePath = GetProjectWorkspacePath(project);
+        return !string.IsNullOrWhiteSpace(workspacePath);
+    }
+
+    private bool TryResolveRecentCodexProject(
+        out ProjectMemory project,
+        bool allowDriveRootWorkspace = true,
+        bool forceFreshCodexSync = false)
+    {
+        project = null!;
+        SyncProjectsFromCodexThreadIndex(force: forceFreshCodexSync);
+        var freshnessCutoff = DateTimeOffset.Now - TimeSpan.FromDays(14);
+
+        project = GetOrderedProjects()
+            .FirstOrDefault(candidate =>
+            {
+                if (candidate.LastCodexThreadAt is null || candidate.LastCodexThreadAt < freshnessCutoff)
+                {
+                    return false;
+                }
+
+                var path = GetProjectWorkspacePath(candidate);
+                if (string.IsNullOrWhiteSpace(path) || !Directory.Exists(path))
+                {
+                    return false;
+                }
+
+                return allowDriveRootWorkspace || !LooksLikeDriveRootPath(path);
+            })!;
+
+        return project is not null;
+    }
+
+    private async Task<bool> TryHandleStructuredProjectScopedFallbackAsync(string input)
+    {
+        if (!LooksLikeProjectScopedConversation(input))
+        {
+            return false;
+        }
+
+        if (!TryResolveWorkspaceFromKnownContext(
+                out var workspacePath,
+                forceFreshCodexSync: true,
+                allowDriveRootWorkspace: true,
+                allowAppRepositoryRoot: false))
+        {
+            const string missingProjectReply = "我听出来你还在说项目，但这轮没把对象锁定下来。我先不把它丢进普通聊天里。你可以直接说“看看现在这个项目”，或者如果你要切别的项目，再给我项目名或路径。";
+            AddConversation(ConversationRole.Companion, missingProjectReply);
+            RefreshDashboard(missingProjectReply);
+            return true;
+        }
+
+        if (LooksLikeProjectScopedSocialConversation(input))
+        {
+            var workspaceLabel = GetWorkspaceDisplayLabel(workspacePath);
+            var scopedReply = $"我先按当前项目“{workspaceLabel}”这条线继续记着，不把它丢进普通闲聊里丢上下文。你如果要我继续读结构、看最近线程、判断下一步，或者直接交给 Codex，就直接说；如果你只是想先吐槽，我也继续围着这条项目陪你。";
+            AddConversation(ConversationRole.Companion, scopedReply);
+            RefreshDashboard(scopedReply);
+            return true;
+        }
+
+        await HandleWorkspaceUnderstandingAsync(workspacePath);
+        return true;
+    }
+
     private bool TryResolvePendingDirectoryFromConversation(out string directoryPath)
     {
         directoryPath = string.Empty;
@@ -2070,6 +2532,52 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             "这个什么意思");
     }
 
+    private bool LooksLikeProjectScopedConversation(string input)
+    {
+        if (string.IsNullOrWhiteSpace(input))
+        {
+            return false;
+        }
+
+        if (LooksLikeWorkspaceUnderstandingRequest(input)
+            || LooksLikeWorkspaceContinuationRequest(input)
+            || LooksLikeCodexStatusInspectionIntent(input)
+            || LooksLikeCodexWorkspaceOverviewRequest(input)
+            || LooksLikeCodexDispatchIntent(input)
+            || LooksLikeVsCodeOpenRequest(input)
+            || LooksLikeDirectorySurfaceRequest(input))
+        {
+            return true;
+        }
+
+        if (ContainsAnyIgnoreCase(
+                input,
+                "当前项目",
+                "现在这个项目",
+                "这个项目",
+                "这个仓库",
+                "这个 workspace",
+                "这个workspace",
+                "项目",
+                "仓库",
+                "repo",
+                "repository",
+                "workspace",
+                "codex",
+                "主线",
+                "线程",
+                "入口",
+                "结构",
+                "readme",
+                "目录",
+                "代码库"))
+        {
+            return true;
+        }
+
+        return MentionsKnownProjectContext(input);
+    }
+
     private static bool LooksLikeWorkspaceContinuationRequest(string input)
     {
         if (string.IsNullOrWhiteSpace(input))
@@ -2107,6 +2615,27 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             "为什么这样");
     }
 
+    private static bool LooksLikeProjectScopedSocialConversation(string input)
+    {
+        return ContainsAnyIgnoreCase(
+            input,
+            "在吗",
+            "陪我",
+            "聊聊",
+            "说说",
+            "吐槽",
+            "累",
+            "困",
+            "烦",
+            "焦虑",
+            "不想做",
+            "没劲",
+            "难受",
+            "崩",
+            "谢谢",
+            "多谢");
+    }
+
     private static bool LooksLikeAffirmativeDirectoryFollowUp(string input)
     {
         var normalized = input.Trim();
@@ -2131,7 +2660,52 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             return $"当前最近浏览的目录：{lastSurface.RootLabel}（路径：{lastSurface.RootPath}）。";
         }
 
+        if (TryResolveRecentCodexProject(out var recentCodexProject, allowDriveRootWorkspace: true))
+        {
+            var workspacePath = GetProjectWorkspacePath(recentCodexProject);
+            if (!string.IsNullOrWhiteSpace(workspacePath))
+            {
+                return $"当前最活跃的 Codex workspace：{GetProjectDisplayLabel(recentCodexProject)}（路径：{workspacePath}）。如果用户没有明确切换对象，默认继续围绕这个工作区回答，不要要求重新提供路径、截图或命令输出。";
+            }
+        }
+
         return null;
+    }
+
+    private bool MentionsKnownProjectContext(string input)
+    {
+        if (!string.IsNullOrWhiteSpace(_activeWorkspaceLabel)
+            && input.Contains(_activeWorkspaceLabel, StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        if (!string.IsNullOrWhiteSpace(_pendingWorkspaceLabel)
+            && input.Contains(_pendingWorkspaceLabel, StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        foreach (var project in GetOrderedProjects().Take(8))
+        {
+            var label = GetProjectDisplayLabel(project);
+            if (!string.IsNullOrWhiteSpace(label)
+                && input.Contains(label, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            foreach (var recentTitle in project.RecentCodexThreadTitles.Take(4))
+            {
+                if (!string.IsNullOrWhiteSpace(recentTitle)
+                    && input.Contains(recentTitle, StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     private static int ScoreDirectoryInterest(string directoryName)
@@ -2261,32 +2835,81 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
                || normalized.Contains("what's codex doing");
     }
 
-    private static string BuildCodexWorkspaceOverviewReply(
-        LocalCodexThreadIndexService.CodexWorkspaceOverviewResult overview)
+    private string BuildCodexWorkspaceOverviewReply(
+        LocalCodexThreadIndexService.CodexWorkspaceOverviewResult overview,
+        IReadOnlyList<ProjectMemory> knownProjects)
     {
         if (!overview.IsSuccess)
         {
             return overview.Message;
         }
 
+        var currentWorkspacePaths = new HashSet<string>(
+            overview.Workspaces.Select(workspace => workspace.Cwd),
+            StringComparer.OrdinalIgnoreCase);
+
+        var rememberedProjects = knownProjects
+            .Where(project => !string.IsNullOrWhiteSpace(GetProjectDisplayLabel(project)))
+            .Where(project => !currentWorkspacePaths.Contains(project.CodexWorkspacePath ?? string.Empty))
+            .Where(ShouldIncludeAsRememberedProject)
+            .Select(GetProjectDisplayLabel)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Take(4)
+            .ToArray();
+
         var lines = new List<string>
         {
-            $"我这次是直接读你本机 Codex 的线程索引，不是再拿单个仓库硬猜。最近活跃的 Codex 项目大约有 {overview.TotalWorkspaceCount} 个。"
+            $"我这次先按你本机 Codex 的当前线程来看“现在”的项目，不直接拿旧记忆硬猜。最近活跃的 Codex workspace 大约有 {overview.TotalWorkspaceCount} 个。",
+            "当前活跃项目："
         };
 
         var rank = 1;
         foreach (var workspace in overview.Workspaces)
         {
-            var titlePart = workspace.RecentTitles.Count > 0
-                ? $"最近多在做“{string.Join(" / ", workspace.RecentTitles)}”"
-                : "最近主要是系统派发和巡检线程";
-
-            lines.Add($"{rank}. {workspace.Label}：最近 {workspace.ThreadCount} 条线程，{titlePart}");
+            lines.Add(BuildCurrentWorkspaceOverviewLine(rank, workspace, knownProjects));
             rank++;
         }
 
-        lines.Add("如果你要，我下一步可以继续点开其中一个项目，只看它最近几条线程在做什么。");
+        if (rememberedProjects.Length > 0)
+        {
+            lines.Add($"另外我还长期记着这些项目线：{string.Join("、", rememberedProjects)}。这部分是背景记忆，不等于它们现在都在活跃推进。");
+        }
+
+        lines.Add("如果你要，我下一步可以继续点开其中一个当前项目，只看它最近几条线程在做什么。");
         return string.Join("\n", lines);
+    }
+
+    private string BuildCurrentWorkspaceOverviewLine(
+        int rank,
+        LocalCodexThreadIndexService.CodexWorkspaceSummary workspace,
+        IReadOnlyList<ProjectMemory> knownProjects)
+    {
+        var matchedProject = knownProjects.FirstOrDefault(project =>
+                                 string.Equals(project.CodexWorkspacePath, workspace.Cwd, StringComparison.OrdinalIgnoreCase))
+                             ?? knownProjects.FirstOrDefault(project =>
+                                 string.Equals(project.PrimaryWorkspacePath, workspace.Cwd, StringComparison.OrdinalIgnoreCase));
+
+        var recentThreadPart = workspace.RecentTitles.Count > 0
+            ? $"最近线程是“{string.Join(" / ", workspace.RecentTitles)}”"
+            : "最近主要是系统派发和巡检线程";
+
+        if (LooksLikeDriveRootWorkspace(workspace))
+        {
+            return $"{rank}. {workspace.Label}：最近 {workspace.ThreadCount} 条线程，{recentThreadPart}。这条我先按目录级 workspace 看，不硬猜成别的项目名。";
+        }
+
+        if (matchedProject is null || IsSyntheticCodexProject(matchedProject))
+        {
+            return $"{rank}. {workspace.Label}：最近 {workspace.ThreadCount} 条线程，{recentThreadPart}。目前这条我先按 workspace 本身来认。";
+        }
+
+        var rememberedLabel = GetProjectDisplayLabel(matchedProject);
+        if (string.Equals(rememberedLabel, workspace.Label, StringComparison.OrdinalIgnoreCase))
+        {
+            return $"{rank}. {workspace.Label}：最近 {workspace.ThreadCount} 条线程，{recentThreadPart}。";
+        }
+
+        return $"{rank}. {workspace.Label}：最近 {workspace.ThreadCount} 条线程，{recentThreadPart}。长期记忆里它对应“{rememberedLabel}”这条线。";
     }
 
     private static string BuildCodexSuccessReply(
@@ -2414,13 +3037,11 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             return true;
         }
 
-        workspacePath = _workspaceSources
-            .OrderByDescending(source => source.LastScannedAt)
-            .Select(source => source.Path)
-            .FirstOrDefault(path => !string.IsNullOrWhiteSpace(path))
-            ?? string.Empty;
-
-        return !string.IsNullOrWhiteSpace(workspacePath);
+        return TryResolveWorkspaceFromKnownContext(
+            out workspacePath,
+            forceFreshCodexSync: true,
+            allowDriveRootWorkspace: true,
+            allowAppRepositoryRoot: false);
     }
 
     private static string ExtractCodexTaskPrompt(string input)
@@ -2503,18 +3124,11 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             return true;
         }
 
-        workspacePath = _workspaceSources
-            .OrderByDescending(source => source.LastScannedAt)
-            .Select(source => source.Path)
-            .FirstOrDefault(path => !string.IsNullOrWhiteSpace(path))
-            ?? string.Empty;
-
-        if (!string.IsNullOrWhiteSpace(workspacePath))
-        {
-            return true;
-        }
-
-        return TryResolveAppRepositoryRoot(out workspacePath);
+        return TryResolveWorkspaceFromKnownContext(
+            out workspacePath,
+            forceFreshCodexSync: true,
+            allowDriveRootWorkspace: true,
+            allowAppRepositoryRoot: true);
     }
 
     private static string BuildCodexTaskPrompt(string input)
@@ -2702,6 +3316,99 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             .ToLowerInvariant();
     }
 
+    private static bool LooksLikeDriveRootLabel(ProjectMemory project)
+    {
+        return Regex.IsMatch(project.CodexWorkspaceLabel ?? string.Empty, "^[A-Za-z]:$")
+               || Regex.IsMatch(project.PrimaryWorkspaceLabel ?? string.Empty, "^[A-Za-z]:$")
+               || Regex.IsMatch(project.Name ?? string.Empty, "^[A-Za-z]:$");
+    }
+
+    private static bool LooksLikeDriveRootPath(string path)
+    {
+        var trimmed = (path ?? string.Empty).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        return Regex.IsMatch(trimmed, "^[A-Za-z]:$");
+    }
+
+    private string GetWorkspaceDisplayLabel(string workspacePath)
+    {
+        var matchedProject = _projects.FirstOrDefault(project =>
+                                 string.Equals(project.CodexWorkspacePath, workspacePath, StringComparison.OrdinalIgnoreCase))
+                             ?? _projects.FirstOrDefault(project =>
+                                 string.Equals(project.PrimaryWorkspacePath, workspacePath, StringComparison.OrdinalIgnoreCase));
+
+        if (matchedProject is not null)
+        {
+            return GetProjectDisplayLabel(matchedProject);
+        }
+
+        var trimmed = workspacePath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        var label = Path.GetFileName(trimmed);
+        return string.IsNullOrWhiteSpace(label) ? trimmed : label;
+    }
+
+    private static string GetProjectWorkspacePath(ProjectMemory project)
+    {
+        return !string.IsNullOrWhiteSpace(project.CodexWorkspacePath)
+            ? project.CodexWorkspacePath
+            : project.PrimaryWorkspacePath;
+    }
+
+    private static string GetProjectDisplayLabel(ProjectMemory project)
+    {
+        if (!string.IsNullOrWhiteSpace(project.CodexWorkspaceLabel))
+        {
+            return project.CodexWorkspaceLabel;
+        }
+
+        if (!string.IsNullOrWhiteSpace(project.PrimaryWorkspaceLabel))
+        {
+            return project.PrimaryWorkspaceLabel;
+        }
+
+        if (!string.IsNullOrWhiteSpace(project.Name))
+        {
+            return project.Name;
+        }
+
+        var path = !string.IsNullOrWhiteSpace(project.CodexWorkspacePath)
+            ? project.CodexWorkspacePath
+            : project.PrimaryWorkspacePath;
+
+        if (!string.IsNullOrWhiteSpace(path))
+        {
+            var trimmed = path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            var label = Path.GetFileName(trimmed);
+            return string.IsNullOrWhiteSpace(label) ? trimmed : label;
+        }
+
+        return "未命名项目";
+    }
+
+    private static string GetProjectMemoryStateLabel(ProjectMemory project)
+    {
+        if (project.CodexThreadCount > 0)
+        {
+            return $"Codex {project.CodexThreadCount} 线程";
+        }
+
+        if (!string.IsNullOrWhiteSpace(project.KindLabel) && !string.IsNullOrWhiteSpace(project.PriorityLabel))
+        {
+            return $"{project.KindLabel} · {project.PriorityLabel}";
+        }
+
+        if (!string.IsNullOrWhiteSpace(project.KindLabel))
+        {
+            return project.KindLabel;
+        }
+
+        if (!string.IsNullOrWhiteSpace(project.PriorityLabel))
+        {
+            return project.PriorityLabel;
+        }
+
+        return "项目线";
+    }
+
     private static string? GetLeadProjectFocus(ProjectMemory? project)
     {
         if (project is null)
@@ -2709,9 +3416,13 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             return null;
         }
 
-        return !string.IsNullOrWhiteSpace(project.NextAction)
-            ? project.NextAction
-            : project.Name;
+        return !string.IsNullOrWhiteSpace(project.RecentCodexThreadTitles.FirstOrDefault())
+            ? project.RecentCodexThreadTitles.First()
+            : !string.IsNullOrWhiteSpace(project.NextAction)
+                ? project.NextAction
+                : !string.IsNullOrWhiteSpace(project.CurrentMilestone)
+                    ? project.CurrentMilestone
+                    : project.Name;
     }
 
     private static int GetProjectPriorityRank(string? priorityLabel)

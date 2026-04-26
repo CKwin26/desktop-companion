@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Codex Thread Live Dashboard</title>
+  <style>
+    :root {
+      --bg: #f3efe7;
+      --panel: rgba(255, 251, 244, 0.92);
+      --ink: #223238;
+      --muted: #6f7b80;
+      --line: rgba(209, 198, 181, 0.9);
+      --accent: #7da79f;
+      --accent-2: #d39f57;
+      --shadow: 0 18px 36px rgba(34, 50, 56, 0.12);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at top left, rgba(125,167,159,.16), transparent 28%),
+        radial-gradient(circle at bottom right, rgba(211,159,87,.14), transparent 22%),
+        var(--bg);
+    }
+
+    .wrap {
+      width: min(1160px, calc(100vw - 48px));
+      margin: 28px auto 42px;
+    }
+
+    .hero, .callout, .workspace {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      box-shadow: var(--shadow);
+    }
+
+    .hero {
+      border-radius: 28px;
+      padding: 28px 30px;
+      margin-bottom: 18px;
+    }
+
+    .hero h1 {
+      margin: 0 0 8px;
+      font-size: 30px;
+      line-height: 1.15;
+    }
+
+    .hero p {
+      margin: 0;
+      max-width: 900px;
+      color: var(--muted);
+      line-height: 1.7;
+      font-size: 15px;
+    }
+
+    .summary {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 14px;
+      margin-bottom: 18px;
+    }
+
+    .summary-card {
+      background: rgba(255,255,255,.68);
+      border: 1px solid var(--line);
+      border-radius: 22px;
+      padding: 16px 18px;
+    }
+
+    .summary-card .label {
+      color: var(--muted);
+      font-size: 12px;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      margin-bottom: 10px;
+    }
+
+    .summary-card .value {
+      font-size: 31px;
+      font-weight: 700;
+    }
+
+    .summary-card .sub {
+      margin-top: 6px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 16px;
+    }
+
+    .workspace {
+      border-radius: 26px;
+      padding: 20px 20px 18px;
+    }
+
+    .workspace header {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: flex-start;
+      margin-bottom: 14px;
+    }
+
+    .workspace h2 {
+      margin: 0 0 6px;
+      font-size: 24px;
+    }
+
+    .workspace .cwd {
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.5;
+      word-break: break-all;
+    }
+
+    .stamp {
+      white-space: nowrap;
+      color: var(--muted);
+      font-size: 12px;
+      padding: 8px 10px;
+      border-radius: 999px;
+      background: rgba(125,167,159,.12);
+      border: 1px solid rgba(125,167,159,.2);
+    }
+
+    .thread-list {
+      display: grid;
+      gap: 10px;
+    }
+
+    .thread {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 10px;
+      align-items: start;
+      padding: 12px 13px;
+      border-radius: 18px;
+      background: rgba(35,50,56,.04);
+      border: 1px solid rgba(209,198,181,.72);
+    }
+
+    .thread .title {
+      font-size: 15px;
+      line-height: 1.5;
+      font-weight: 600;
+    }
+
+    .thread .time {
+      color: var(--muted);
+      font-size: 12px;
+      white-space: nowrap;
+    }
+
+    .callout {
+      margin-top: 20px;
+      border-radius: 24px;
+      padding: 20px 22px;
+    }
+
+    .callout h2 {
+      margin: 0 0 10px;
+      font-size: 22px;
+    }
+
+    .callout ul {
+      margin: 0;
+      padding-left: 18px;
+      line-height: 1.75;
+    }
+
+    @media (max-width: 1000px) {
+      .summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <section class="hero">
+      <h1>Codex Thread Live Dashboard</h1>
+      <p>这页看的是你截图那一套真实来源：<code>C:\Users\austa\.codex\state_5.sqlite</code> 里的 <strong>Codex 线程标题</strong>，不是桌宠自己的 <code>projects.json</code>。所以这里的名字会和 sidebar 对得上，而不会再用桌宠自己归纳出来的项目线名字。</p>
+    </section>
+
+    <section class="summary">
+      <div class="summary-card">
+        <div class="label">Workspaces</div>
+        <div class="value">8</div>
+        <div class="sub">最近活跃的 Codex 工作区</div>
+      </div>
+      <div class="summary-card">
+        <div class="label">Top Workspace</div>
+        <div class="value">image_process</div>
+        <div class="sub">按最近线程更新时间排序</div>
+      </div>
+      <div class="summary-card">
+        <div class="label">Current Mismatch</div>
+        <div class="value">Yes</div>
+        <div class="sub">Codex 线程名和 ProjectMemory 还没打通</div>
+      </div>
+      <div class="summary-card">
+        <div class="label">Need Next</div>
+        <div class="value">Map</div>
+        <div class="sub">要把线程标题映射回桌宠项目状态</div>
+      </div>
+    </section>
+
+    <section class="grid">
+      <article class="workspace">
+        <header>
+          <div>
+            <h2>image_process</h2>
+            <div class="cwd">G:\image_process</div>
+          </div>
+          <div class="stamp">04-24 22:38</div>
+        </header>
+        <div class="thread-list">
+          <div class="thread"><div class="title">查看文件夹</div><div class="time">04-24 22:38</div></div>
+        </div>
+      </article>
+
+      <article class="workspace">
+        <header>
+          <div>
+            <h2>singletrans</h2>
+            <div class="cwd">G:\singletrans</div>
+          </div>
+          <div class="stamp">04-24 22:38</div>
+        </header>
+        <div class="thread-list">
+          <div class="thread"><div class="title">检查翻译器问题とありません？'})】</div><div class="time">04-24 22:38</div></div>
+          <div class="thread"><div class="title">评估术语表注入方案</div><div class="time">04-22 00:46</div></div>
+          <div class="thread"><div class="title">单人连续对话翻译器你来读一下现在的文件</div><div class="time">04-05 04:29</div></div>
+        </div>
+      </article>
+
+      <article class="workspace">
+        <header>
+          <div>
+            <h2>phdapply</h2>
+            <div class="cwd">C:\Users\austa\OneDrive\Desktop\phdapply</div>
+          </div>
+          <div class="stamp">04-24 16:49</div>
+        </header>
+        <div class="thread-list">
+          <div class="thread"><div class="title">调出会议审核证据</div><div class="time">04-24 16:49</div></div>
+        </div>
+      </article>
+
+      <article class="workspace">
+        <header>
+          <div>
+            <h2>C:</h2>
+            <div class="cwd">C:\</div>
+          </div>
+          <div class="stamp">04-23 17:31</div>
+        </header>
+        <div class="thread-list">
+          <div class="thread"><div class="title">查找可移至G盘文件</div><div class="time">04-23 17:31</div></div>
+        </div>
+      </article>
+
+      <article class="workspace">
+        <header>
+          <div>
+            <h2>learned_slot</h2>
+            <div class="cwd">C:\Users\austa\OneDrive\Desktop\learned_slot</div>
+          </div>
+          <div class="stamp">04-23 16:00</div>
+        </header>
+        <div class="thread-list">
+          <div class="thread"><div class="title">研究 learned slot 项目代码结构</div><div class="time">04-23 16:00</div></div>
+        </div>
+      </article>
+
+      <article class="workspace">
+        <header>
+          <div>
+            <h2>vectra</h2>
+            <div class="cwd">G:\mutitrans\vectra</div>
+          </div>
+          <div class="stamp">04-23 00:04</div>
+        </header>
+        <div class="thread-list">
+          <div class="thread"><div class="title">梳理找圆算法线路</div><div class="time">04-23 00:04</div></div>
+        </div>
+      </article>
+
+      <article class="workspace">
+        <header>
+          <div>
+            <h2>EEG</h2>
+            <div class="cwd">C:\Users\austa\OneDrive\Desktop\EEG</div>
+          </div>
+          <div class="stamp">04-22 17:12</div>
+        </header>
+        <div class="thread-list">
+          <div class="thread"><div class="title">设计枕头贴合结构</div><div class="time">04-22 17:12</div></div>
+          <div class="thread"><div class="title">编写睡眠辅助脑机枕头项目技术方案文档</div><div class="time">04-19 02:20</div></div>
+        </div>
+      </article>
+
+      <article class="workspace">
+        <header>
+          <div>
+            <h2>mainland</h2>
+            <div class="cwd">C:\Users\austa\OneDrive\Desktop\mainland</div>
+          </div>
+          <div class="stamp">04-22 16:09</div>
+        </header>
+        <div class="thread-list">
+          <div class="thread"><div class="title">构建桌面多任务监督与定期梳理插件系统</div><div class="time">04-22 16:09</div></div>
+          <div class="thread"><div class="title">Inspect the current workspace and summarize the active tasks in 3 short bullets with one next step.</div><div class="time">04-21 22:51</div></div>
+          <div class="thread"><div class="title">Inspect the current workspace and summarize the active tasks in 3 short bullets with one next step.</div><div class="time">04-21 22:22</div></div>
+          <div class="thread"><div class="title">Read the current workspace and summarize the active workstreams in this repository. For each active...</div><div class="time">04-21 22:20</div></div>
+        </div>
+      </article>
+    </section>
+
+    <section class="callout">
+      <h2>这说明现在真正缺的是哪一层</h2>
+      <ul>
+        <li>桌宠自己的状态系统看的是 <code>ProjectMemory</code>，它会把项目整理成“项目线 + next action + scores”。</li>
+        <li>你 sidebar 里看到的是 <code>Codex thread title</code>，它本质上是“某个 workspace 下最近开过哪些线程”。</li>
+        <li>所以真正该补的不是再画一版图，而是做一层 <strong>Codex 线程标题 → 桌宠项目线</strong> 的映射。</li>
+      </ul>
+    </section>
+  </div>
+</body>
+</html>

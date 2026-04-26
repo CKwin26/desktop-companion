@@ -91,7 +91,7 @@ public sealed class LocalCodexThreadIndexService
 
                     return new CodexWorkspaceSummary(
                         group.Key,
-                        Path.GetFileName(group.Key.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)),
+                        BuildWorkspaceLabel(group.Key),
                         orderedRows.Count,
                         DateTimeOffset.FromUnixTimeMilliseconds(orderedRows[0].UpdatedAtMs),
                         representativeTitles);
@@ -119,6 +119,21 @@ public sealed class LocalCodexThreadIndexService
         return cwd.StartsWith(@"\\?\")
             ? cwd[4..]
             : cwd;
+    }
+
+    private static string BuildWorkspaceLabel(string cwd)
+    {
+        var trimmed = cwd.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        var label = Path.GetFileName(trimmed);
+        if (!string.IsNullOrWhiteSpace(label))
+        {
+            return label;
+        }
+
+        var root = Path.GetPathRoot(trimmed);
+        return string.IsNullOrWhiteSpace(root)
+            ? trimmed
+            : root.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
     }
 
     private static string CondenseTitle(string rawTitle)
