@@ -48,6 +48,7 @@ public sealed class ProjectStateScorer
     private static int CalculateExecutionHealth(ProjectMemory project, ProjectStateAssessment assessment)
     {
         var score = 18;
+        var archetype = ProjectArchetypes.ParseLabel(project.ArchetypeLabel);
 
         if (!string.IsNullOrWhiteSpace(project.NextAction))
         {
@@ -62,6 +63,17 @@ public sealed class ProjectStateScorer
         score += Math.Min(12, project.RecentItems.Count * 3);
         score += Math.Min(10, project.EvidenceItems.Count * 2);
 
+        score += archetype switch
+        {
+            ProjectArchetype.EngineeringExecution when !string.IsNullOrWhiteSpace(project.PrimaryWorkspacePath) => 8,
+            ProjectArchetype.ResearchEvaluation when project.EvidenceItems.Count > 0 => 8,
+            ProjectArchetype.ApplicationOps when !string.IsNullOrWhiteSpace(project.ExpectedDeliverable) => 10,
+            ProjectArchetype.ProductResearch when !string.IsNullOrWhiteSpace(project.CurrentMilestone) => 8,
+            ProjectArchetype.OperationsAdmin when !string.IsNullOrWhiteSpace(project.NextAction) => 8,
+            ProjectArchetype.LifeEntertainment when !string.IsNullOrWhiteSpace(project.NextAction) => 4,
+            _ => 0
+        };
+
         if (project.Blockers.Count > 0)
         {
             score -= project.Blockers.Count >= 2 ? 28 : 16;
@@ -69,7 +81,13 @@ public sealed class ProjectStateScorer
 
         if (assessment.SearchStatusLabel == "required")
         {
-            score -= 8;
+            score -= archetype switch
+            {
+                ProjectArchetype.EngineeringExecution => 4,
+                ProjectArchetype.OperationsAdmin => 3,
+                ProjectArchetype.LifeEntertainment => 0,
+                _ => 8
+            };
         }
 
         return ClampScore(score);
@@ -81,6 +99,8 @@ public sealed class ProjectStateScorer
         ProjectExternalSignalSnapshot externalSignals)
     {
         var score = 12;
+        var archetype = ProjectArchetypes.ParseLabel(project.ArchetypeLabel);
+
         score += project.Blockers.Count switch
         {
             >= 2 => 38,
@@ -106,6 +126,27 @@ public sealed class ProjectStateScorer
         else if (string.Equals(externalSignals.StatusLabel, "collected", StringComparison.OrdinalIgnoreCase))
         {
             score -= Math.Min(12, externalSignals.References.Count * 3);
+        }
+
+        if (archetype == ProjectArchetype.ApplicationOps && string.IsNullOrWhiteSpace(project.ExpectedDeliverable))
+        {
+            score += 16;
+        }
+        else if (archetype == ProjectArchetype.ResearchEvaluation && project.EvidenceItems.Count == 0)
+        {
+            score += 10;
+        }
+        else if (archetype == ProjectArchetype.ProductResearch && string.IsNullOrWhiteSpace(project.ExpectedDeliverable))
+        {
+            score += 12;
+        }
+        else if (archetype == ProjectArchetype.EngineeringExecution && string.IsNullOrWhiteSpace(project.PrimaryWorkspacePath))
+        {
+            score += 8;
+        }
+        else if (archetype == ProjectArchetype.OperationsAdmin && string.IsNullOrWhiteSpace(project.NextAction))
+        {
+            score += 8;
         }
 
         return ClampScore(score);
@@ -164,6 +205,7 @@ public sealed class ProjectStateScorer
             score += 8;
         }
 
+        score = (int)Math.Round((score * 0.8) + (project.ArchetypeConfidence * 0.2));
         return ClampScore(score);
     }
 
@@ -174,15 +216,28 @@ public sealed class ProjectStateScorer
         int externalSupport)
     {
         var score = 12;
+        var archetype = ProjectArchetypes.ParseLabel(project.ArchetypeLabel);
 
         if (string.IsNullOrWhiteSpace(project.ExpectedDeliverable))
         {
-            score += 20;
+            score += archetype switch
+            {
+                ProjectArchetype.ApplicationOps => 28,
+                ProjectArchetype.ProductResearch => 24,
+                ProjectArchetype.OperationsAdmin => 14,
+                ProjectArchetype.LifeEntertainment => 4,
+                _ => 20
+            };
         }
 
         if (string.IsNullOrWhiteSpace(project.CurrentMilestone))
         {
-            score += 18;
+            score += archetype switch
+            {
+                ProjectArchetype.ResearchEvaluation => 22,
+                ProjectArchetype.LifeEntertainment => 6,
+                _ => 18
+            };
         }
 
         if (project.RecentItems.Count >= 4 && string.IsNullOrWhiteSpace(project.NextAction))
@@ -192,7 +247,14 @@ public sealed class ProjectStateScorer
 
         if (externalSignals.StatusLabel == "required")
         {
-            score += 18;
+            score += archetype switch
+            {
+                ProjectArchetype.EngineeringExecution => 10,
+                ProjectArchetype.ProductResearch => 14,
+                ProjectArchetype.OperationsAdmin => 8,
+                ProjectArchetype.LifeEntertainment => 4,
+                _ => 18
+            };
         }
         else if (externalSignals.StatusLabel == "suggested")
         {
@@ -244,43 +306,39 @@ public sealed class ProjectStateScorer
     private static bool IsAuthoritativeReference(ProjectMemory project, ProjectExternalReference reference)
     {
         var host = reference.SourceHost.ToLowerInvariant();
-        var signalText = string.Join(
-                " ",
-                [
-                    project.Name,
-                    project.ExpectedDeliverable,
-                    project.WorkspaceKindLabel,
-                    ..project.Keywords
-                ])
-            .ToLowerInvariant();
 
-        if (ContainsAny(signalText, "phd", "application", "sop", "proposal", "school"))
+        return ProjectArchetypes.ParseLabel(project.ArchetypeLabel) switch
         {
-            return host.EndsWith(".edu", StringComparison.OrdinalIgnoreCase)
-                   || host.Contains("admission")
-                   || host.Contains("graduate")
-                   || host.Contains("university");
-        }
-
-        if (ContainsAny(signalText, "research", "paper", "benchmark", "evaluation"))
-        {
-            return host.Contains("openreview")
-                   || host.Contains("arxiv")
-                   || host.Contains("ieee")
-                   || host.Contains("acm")
-                   || host.Contains("nature")
-                   || host.Contains("springer");
-        }
-
-        return host.Contains("github.com")
-               || host.Contains("docs.")
-               || host.Contains("learn.")
-               || host.Contains("developer.")
-               || host.Contains("official");
-    }
-
-    private static bool ContainsAny(string input, params string[] needles)
-    {
-        return needles.Any(needle => input.Contains(needle, StringComparison.OrdinalIgnoreCase));
+            ProjectArchetype.ApplicationOps => host.EndsWith(".edu", StringComparison.OrdinalIgnoreCase)
+                                               || host.Contains("admission")
+                                               || host.Contains("graduate")
+                                               || host.Contains("university"),
+            ProjectArchetype.ResearchEvaluation => host.Contains("openreview")
+                                                   || host.Contains("arxiv")
+                                                   || host.Contains("ieee")
+                                                   || host.Contains("acm")
+                                                   || host.Contains("nature")
+                                                   || host.Contains("springer"),
+            ProjectArchetype.ProductResearch => host.Contains("review")
+                                                || host.Contains("design")
+                                                || host.Contains("ergonomic")
+                                                || host.Contains("hardware")
+                                                || host.Contains("sleep")
+                                                || host.Contains("medical"),
+            ProjectArchetype.OperationsAdmin => host.Contains("docs.")
+                                                || host.Contains("support")
+                                                || host.Contains("learn.")
+                                                || host.Contains("microsoft")
+                                                || host.Contains("github.com"),
+            ProjectArchetype.LifeEntertainment => host.Contains("review")
+                                                  || host.Contains("guide")
+                                                  || host.Contains("recommend"),
+            ProjectArchetype.EngineeringExecution => host.Contains("github.com")
+                                                     || host.Contains("docs.")
+                                                     || host.Contains("learn.")
+                                                     || host.Contains("developer.")
+                                                     || host.Contains("official"),
+            _ => host.Contains("github.com") || host.EndsWith(".edu", StringComparison.OrdinalIgnoreCase)
+        };
     }
 }

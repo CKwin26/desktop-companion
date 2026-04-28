@@ -201,6 +201,7 @@ The current default model in code is `gemma4:e4b`.
 - [Final product structure](./docs/final-product-structure.md)
 - [Product positioning](./docs/product-positioning.md)
 - [Product principles](./docs/product-principles.md)
+- [Project bucket system](./docs/project-bucket-system.md)
 - [Repo structure](./docs/repo-structure.md)
 - [WPF host route](./docs/wpf-host-route.md)
 - [Project cognition](./docs/project-cognition.md)

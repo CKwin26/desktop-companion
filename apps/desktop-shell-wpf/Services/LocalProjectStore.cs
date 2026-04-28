@@ -82,6 +82,9 @@ public sealed class LocalProjectStore
         project.WorkspaceKindLabel = project.WorkspaceKindLabel?.Trim() ?? string.Empty;
         project.CodexWorkspacePath = project.CodexWorkspacePath?.Trim() ?? string.Empty;
         project.CodexWorkspaceLabel = project.CodexWorkspaceLabel?.Trim() ?? string.Empty;
+        project.ArchetypeLabel = ProjectArchetypes.ToLabel(ProjectArchetypes.ParseLabel(project.ArchetypeLabel));
+        project.ArchetypeConfidence = ClampScore(project.ArchetypeConfidence == 0 ? 35 : project.ArchetypeConfidence);
+        project.ArchetypeReason = project.ArchetypeReason?.Trim() ?? string.Empty;
         project.Keywords = NormalizeStrings(project.Keywords, 10);
         project.RecentItems = NormalizeStrings(project.RecentItems, 10);
         project.RecentCodexThreadTitles = NormalizeStrings(project.RecentCodexThreadTitles, 6);

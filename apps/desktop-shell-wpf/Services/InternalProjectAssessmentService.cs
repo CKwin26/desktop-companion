@@ -38,6 +38,7 @@ public sealed class InternalProjectAssessmentService
             NeedsExternalSearch = needSearchScore >= 60,
             SearchStatusLabel = searchStatus,
             SearchDecisionReason = BuildSearchDecisionReason(
+                project,
                 cognitionConfidence,
                 evidenceStrength,
                 freshnessRisk,
@@ -84,8 +85,7 @@ public sealed class InternalProjectAssessmentService
     private static int CalculateEvidenceStrength(ProjectMemory project)
     {
         var score = 10;
-        var evidenceCount = project.EvidenceItems.Count;
-        score += Math.Min(35, evidenceCount * 6);
+        score += Math.Min(35, project.EvidenceItems.Count * 6);
 
         var sourceTypeCount = project.EvidenceItems
             .Select(item => item.SourceType?.Trim())
@@ -127,94 +127,72 @@ public sealed class InternalProjectAssessmentService
             _ => 16
         };
 
-        if (string.Equals(project.PriorityLabel, "先动", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(project.PriorityLabel, "鍏堝姩", StringComparison.OrdinalIgnoreCase))
-        {
-            score += 8;
-        }
-
         return ClampScore(score);
     }
 
     private static int CalculateExternalRelevance(ProjectMemory project)
     {
-        var signalText = string.Join(
-            " ",
-            [
-                project.Name,
-                project.KindLabel,
-                project.ExpectedDeliverable,
-                project.WorkspaceKindLabel,
-                ..project.Keywords,
-                ..project.RecentItems
-            ])
-            .ToLowerInvariant();
-
-        if (ContainsAny(signalText, "phd", "application", "proposal", "sop", "school", "recommendation"))
+        var archetype = ProjectArchetypes.ParseLabel(project.ArchetypeLabel);
+        var score = archetype switch
         {
-            return 88;
+            ProjectArchetype.ApplicationOps => 88,
+            ProjectArchetype.ResearchEvaluation => 76,
+            ProjectArchetype.ProductResearch => 68,
+            ProjectArchetype.EngineeringExecution => 54,
+            ProjectArchetype.OperationsAdmin => 38,
+            ProjectArchetype.LifeEntertainment => 18,
+            _ => 42
+        };
+
+        if (project.ExternalSignals.References.Count > 0)
+        {
+            score -= 4;
         }
 
-        if (ContainsAny(signalText, "research", "paper", "benchmark", "evaluation", "publication"))
+        if (ContainsAny(project.ExpectedDeliverable, "proposal", "paper", "benchmark", "release", "submission"))
         {
-            return 78;
+            score += 6;
         }
 
-        if (ContainsAny(signalText, "product", "ui", "ux", "design", "landing"))
-        {
-            return 68;
-        }
-
-        if (ContainsAny(signalText, "repo", "code", "api", "service", "library"))
-        {
-            return 58;
-        }
-
-        return 42;
+        return ClampScore(score);
     }
 
     private static int CalculateDecisionStakes(ProjectMemory project)
     {
-        var signalText = string.Join(
-            " ",
-            [
-                project.Name,
-                project.ExpectedDeliverable,
-                project.WorkspaceKindLabel,
-                ..project.Keywords
-            ])
-            .ToLowerInvariant();
-
         var score = 24;
-
-        if (string.Equals(project.PriorityLabel, "先动", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(project.PriorityLabel, "鍏堝姩", StringComparison.OrdinalIgnoreCase))
-        {
-            score += 18;
-        }
+        var archetype = ProjectArchetypes.ParseLabel(project.ArchetypeLabel);
 
         if (project.Blockers.Count > 0)
         {
             score += 10;
         }
 
-        if (ContainsAny(signalText, "phd", "application", "deadline", "submission", "proposal", "grant"))
+        score += archetype switch
         {
-            score += 32;
+            ProjectArchetype.ApplicationOps => 30,
+            ProjectArchetype.ResearchEvaluation => 20,
+            ProjectArchetype.ProductResearch => 24,
+            ProjectArchetype.EngineeringExecution => 16,
+            ProjectArchetype.OperationsAdmin => 12,
+            ProjectArchetype.LifeEntertainment => 4,
+            _ => 0
+        };
+
+        if (ContainsAny(project.ExpectedDeliverable, "deadline", "submission", "proposal", "grant"))
+        {
+            score += 12;
         }
-        else if (ContainsAny(signalText, "research", "paper", "benchmark", "evaluation"))
+
+        if (ContainsAny(project.ExpectedDeliverable, "prototype", "hardware", "device", "sensor", "pillow", "ergonomic"))
         {
-            score += 22;
-        }
-        else if (ContainsAny(signalText, "release", "prod", "launch"))
-        {
-            score += 18;
+            score += 10;
         }
 
         return ClampScore(score);
     }
 
     private static string BuildSearchDecisionReason(
+        ProjectMemory project,
         int cognitionConfidence,
         int evidenceStrength,
         int freshnessRisk,
@@ -223,38 +201,40 @@ public sealed class InternalProjectAssessmentService
         int needSearchScore)
     {
         var reasons = new List<string>();
+        var archetype = ProjectArchetypes.ParseLabel(project.ArchetypeLabel);
+        var bucketLabel = ProjectArchetypes.ToDisplayLabel(archetype);
 
         if (cognitionConfidence < 55)
         {
-            reasons.Add("internal understanding is still weak");
+            reasons.Add("当前理解还不够稳");
         }
 
         if (evidenceStrength < 55)
         {
-            reasons.Add("local evidence coverage is thin");
+            reasons.Add("本地证据还偏薄");
         }
 
         if (freshnessRisk >= 50)
         {
-            reasons.Add("current picture may be stale");
+            reasons.Add("手上的判断可能已经有点旧了");
         }
 
         if (externalRelevance >= 70)
         {
-            reasons.Add("outside standards likely matter");
+            reasons.Add("这条线很依赖外部标准或公开参照");
         }
 
         if (decisionStakes >= 70)
         {
-            reasons.Add("the project is high-stakes");
+            reasons.Add("这条线的决策代价比较高");
         }
 
         if (reasons.Count == 0)
         {
-            reasons.Add("current local understanding looks sufficient");
+            reasons.Add("目前本地理解基本够用");
         }
 
-        return $"NeedSearch={needSearchScore}/100 because {string.Join(", ", reasons)}.";
+        return $"外部核验建议 {needSearchScore}/100：这条线现在按“{bucketLabel}”理解；{string.Join("，", reasons)}。";
     }
 
     private static bool ContainsAny(string input, params string[] needles)

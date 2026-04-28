@@ -32,6 +32,12 @@ public sealed class ProjectMemory
 
     public DateTimeOffset? LastCodexThreadAt { get; set; }
 
+    public string ArchetypeLabel { get; set; } = "general";
+
+    public int ArchetypeConfidence { get; set; } = 35;
+
+    public string ArchetypeReason { get; set; } = string.Empty;
+
     public ProjectProgressSnapshot ProgressSnapshot { get; set; } = new();
 
     public ProjectStateAssessment StateAssessment { get; set; } = new();

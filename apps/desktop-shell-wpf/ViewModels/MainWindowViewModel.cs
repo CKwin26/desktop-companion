@@ -44,6 +44,10 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     private readonly ProjectCognitionService _projectCognitionService;
     private readonly WorkspaceIngestionService _workspaceIngestionService;
     private readonly RepoStructureReaderService _repoStructureReaderService;
+    private readonly ProjectArchetypeResolverService _projectArchetypeResolverService;
+    private readonly InternalProjectAssessmentService _internalProjectAssessmentService;
+    private readonly ExternalSignalCollectorService _externalSignalCollectorService;
+    private readonly ProjectStateScorer _projectStateScorer;
     private readonly PersonalDistillationService _personalDistillationService;
     private readonly LocalCodexThreadIndexService _localCodexThreadIndexService;
     private readonly VsCodeBridgeService _vsCodeBridgeService;
@@ -105,6 +109,10 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             new ProjectCognitionService(),
             new WorkspaceIngestionService(),
             new RepoStructureReaderService(),
+            new ProjectArchetypeResolverService(),
+            new InternalProjectAssessmentService(),
+            new ExternalSignalCollectorService(),
+            new ProjectStateScorer(),
             new PersonalDistillationService(),
             new LocalCodexThreadIndexService(),
             new VsCodeBridgeService(),
@@ -126,6 +134,10 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         ProjectCognitionService projectCognitionService,
         WorkspaceIngestionService workspaceIngestionService,
         RepoStructureReaderService repoStructureReaderService,
+        ProjectArchetypeResolverService projectArchetypeResolverService,
+        InternalProjectAssessmentService internalProjectAssessmentService,
+        ExternalSignalCollectorService externalSignalCollectorService,
+        ProjectStateScorer projectStateScorer,
         PersonalDistillationService personalDistillationService,
         LocalCodexThreadIndexService localCodexThreadIndexService,
         VsCodeBridgeService vsCodeBridgeService,
@@ -144,6 +156,10 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         _projectCognitionService = projectCognitionService;
         _workspaceIngestionService = workspaceIngestionService;
         _repoStructureReaderService = repoStructureReaderService;
+        _projectArchetypeResolverService = projectArchetypeResolverService;
+        _internalProjectAssessmentService = internalProjectAssessmentService;
+        _externalSignalCollectorService = externalSignalCollectorService;
+        _projectStateScorer = projectStateScorer;
         _personalDistillationService = personalDistillationService;
         _localCodexThreadIndexService = localCodexThreadIndexService;
         _vsCodeBridgeService = vsCodeBridgeService;
@@ -613,6 +629,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
                              ?? _projectCognitionService.CreateFallbackDigest(input, GetOrderedProjects());
 
                 _projectCognitionService.MergeDigestIntoProjects(_projects, digest);
+                await RecomputeProjectStatesAsync(allowExternalSearch: true);
                 PersistProjects();
 
                 var projectReply = _projectCognitionService.BuildCompanionReply(digest);
@@ -626,6 +643,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
                 AiStatusLabel = $"{provider?.Label ?? "AI"} 暂时没接上";
                 var digest = _projectCognitionService.CreateFallbackDigest(input, GetOrderedProjects());
                 _projectCognitionService.MergeDigestIntoProjects(_projects, digest);
+                await RecomputeProjectStatesAsync(allowExternalSearch: true);
                 PersistProjects();
 
                 var projectReply = _projectCognitionService.BuildCompanionReply(digest);
@@ -1361,6 +1379,8 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         var storedProjects = _projectStore.LoadProjects();
         _projects.AddRange(storedProjects);
         SyncProjectsFromCodexThreadIndex(force: true);
+        RecomputeProjectStates();
+        PersistProjects();
     }
 
     private void LoadWorkspaceSources()
@@ -1491,6 +1511,119 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         _conversationStore.SaveMessages(_conversationHistory);
     }
 
+    private void RecomputeProjectStates(IEnumerable<ProjectMemory>? projects = null)
+    {
+        foreach (var project in projects ?? _projects)
+        {
+            RecomputeProjectState(project);
+        }
+    }
+
+    private async Task RecomputeProjectStatesAsync(
+        IEnumerable<ProjectMemory>? projects = null,
+        bool allowExternalSearch = false,
+        CancellationToken cancellationToken = default)
+    {
+        foreach (var project in projects ?? _projects)
+        {
+            await RecomputeProjectStateAsync(project, allowExternalSearch, cancellationToken);
+        }
+    }
+
+    private void RecomputeProjectState(ProjectMemory project)
+    {
+        var resolution = _projectArchetypeResolverService.Resolve(project);
+        ApplyArchetypeResolution(project, resolution);
+
+        var assessment = _internalProjectAssessmentService.Assess(project);
+        var externalSignals = BuildBaselineExternalSignals(project, assessment);
+        project.ExternalSignals = externalSignals;
+        project.StateAssessment = _projectStateScorer.Score(project, assessment, externalSignals);
+    }
+
+    private async Task RecomputeProjectStateAsync(
+        ProjectMemory project,
+        bool allowExternalSearch,
+        CancellationToken cancellationToken)
+    {
+        var resolution = _projectArchetypeResolverService.Resolve(project);
+        ApplyArchetypeResolution(project, resolution);
+
+        var assessment = _internalProjectAssessmentService.Assess(project);
+        var externalSignals = BuildBaselineExternalSignals(project, assessment);
+
+        if (allowExternalSearch && ShouldRefreshExternalSignals(project, assessment))
+        {
+            externalSignals = await _externalSignalCollectorService.CollectSignalsAsync(project, assessment, cancellationToken);
+        }
+
+        project.ExternalSignals = externalSignals;
+        project.StateAssessment = _projectStateScorer.Score(project, assessment, externalSignals);
+    }
+
+    private static void ApplyArchetypeResolution(ProjectMemory project, ProjectArchetypeResolution resolution)
+    {
+        project.ArchetypeLabel = ProjectArchetypes.ToLabel(resolution.Archetype);
+        project.ArchetypeConfidence = resolution.Confidence;
+        project.ArchetypeReason = resolution.Reason;
+    }
+
+    private ProjectExternalSignalSnapshot BuildBaselineExternalSignals(
+        ProjectMemory project,
+        ProjectStateAssessment assessment)
+    {
+        var baseline = _externalSignalCollectorService.BuildPlaceholderSnapshot(project, assessment);
+        var existing = project.ExternalSignals;
+        if (existing is null)
+        {
+            return baseline;
+        }
+
+        if (!string.IsNullOrWhiteSpace(existing.StatusLabel))
+        {
+            baseline.StatusLabel = existing.StatusLabel;
+        }
+
+        if (!string.IsNullOrWhiteSpace(existing.Summary))
+        {
+            baseline.Summary = existing.Summary;
+        }
+
+        if (existing.References.Count > 0)
+        {
+            baseline.References = existing.References
+                .OrderByDescending(reference => reference.ObservedAt)
+                .Take(6)
+                .ToList();
+        }
+
+        baseline.UpdatedAt = existing.UpdatedAt == default ? baseline.UpdatedAt : existing.UpdatedAt;
+        return baseline;
+    }
+
+    private static bool ShouldRefreshExternalSignals(ProjectMemory project, ProjectStateAssessment assessment)
+    {
+        if (assessment.SearchStatusLabel == "not_needed")
+        {
+            return false;
+        }
+
+        if (project.ExternalSignals is null || project.ExternalSignals.References.Count == 0)
+        {
+            return true;
+        }
+
+        if (!string.Equals(project.ExternalSignals.StatusLabel, "collected", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        var age = DateTimeOffset.Now - project.ExternalSignals.UpdatedAt;
+        return assessment.SearchStatusLabel == "required"
+            ? age > TimeSpan.FromHours(18)
+            : age > TimeSpan.FromDays(2);
+    }
+
     private bool SyncProjectsFromCodexThreadIndex(bool force = false)
     {
         var now = DateTimeOffset.Now;
@@ -1514,6 +1647,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
 
         if (changed)
         {
+            RecomputeProjectStates();
             PersistProjects();
         }
 
@@ -2063,6 +2197,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             if (_permissionProfile.CanBuildProjectMemoryFromDocs)
             {
                 _projectCognitionService.MergeDigestIntoProjects(_projects, digest);
+                await RecomputeProjectStatesAsync(allowExternalSearch: true);
                 PersistProjects();
             }
 
@@ -3386,19 +3521,23 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
 
     private static string GetProjectMemoryStateLabel(ProjectMemory project)
     {
+        var bucketLabel = ProjectArchetypes.ToDisplayLabel(project.ArchetypeLabel);
+
         if (project.CodexThreadCount > 0)
         {
-            return $"Codex {project.CodexThreadCount} 线程";
+            return bucketLabel == "暂未定类"
+                ? $"Codex {project.CodexThreadCount} 线程"
+                : $"{bucketLabel} · Codex {project.CodexThreadCount} 线程";
         }
 
-        if (!string.IsNullOrWhiteSpace(project.KindLabel) && !string.IsNullOrWhiteSpace(project.PriorityLabel))
+        if (bucketLabel != "暂未定类" && !string.IsNullOrWhiteSpace(project.PriorityLabel))
         {
-            return $"{project.KindLabel} · {project.PriorityLabel}";
+            return $"{bucketLabel} · {project.PriorityLabel}";
         }
 
-        if (!string.IsNullOrWhiteSpace(project.KindLabel))
+        if (bucketLabel != "暂未定类")
         {
-            return project.KindLabel;
+            return bucketLabel;
         }
 
         if (!string.IsNullOrWhiteSpace(project.PriorityLabel))

@@ -98,34 +98,49 @@ public sealed class ExternalSignalCollectorService
     private static List<string> BuildSuggestedQueries(ProjectMemory project)
     {
         var queries = new List<string>();
-        var queryRoot = string.IsNullOrWhiteSpace(project.Name) ? "current project" : project.Name;
-        var lower = string.Join(
-            " ",
-            [
-                project.Name,
-                project.ExpectedDeliverable,
-                project.WorkspaceKindLabel,
-                ..project.Keywords
-            ])
-            .ToLowerInvariant();
+        var queryRoot = BuildQueryRoot(project);
 
-        if (ContainsAny(lower, "phd", "application", "sop", "proposal", "school"))
+        switch (ProjectArchetypes.ParseLabel(project.ArchetypeLabel))
         {
-            queries.Add($"{queryRoot} application requirements best practices");
-            queries.Add($"{queryRoot} statement of purpose common evaluation criteria");
-            queries.Add($"{queryRoot} recommendation letters submission expectations");
-        }
-        else if (ContainsAny(lower, "research", "paper", "benchmark", "evaluation"))
-        {
-            queries.Add($"{queryRoot} benchmark evaluation best practices");
-            queries.Add($"{queryRoot} common failure modes critique");
-            queries.Add($"{queryRoot} literature external evaluation");
-        }
-        else
-        {
-            queries.Add($"{queryRoot} official docs");
-            queries.Add($"{queryRoot} issues discussions review");
-            queries.Add($"{queryRoot} alternatives community feedback");
+            case ProjectArchetype.ApplicationOps:
+                queries.Add($"{queryRoot} application requirements best practices");
+                queries.Add($"{queryRoot} statement of purpose evaluation criteria");
+                queries.Add($"{queryRoot} recommendation letter submission expectations");
+                break;
+
+            case ProjectArchetype.ResearchEvaluation:
+                queries.Add($"{queryRoot} benchmark evaluation best practices");
+                queries.Add($"{queryRoot} dataset metric failure modes");
+                queries.Add($"{queryRoot} literature critique baseline comparison");
+                break;
+
+            case ProjectArchetype.ProductResearch:
+                queries.Add($"{queryRoot} ergonomic product design best practices");
+                queries.Add($"{queryRoot} sensor contact geometry review");
+                queries.Add($"{queryRoot} competitor product critique");
+                break;
+
+            case ProjectArchetype.EngineeringExecution:
+                queries.Add($"{queryRoot} official docs architecture");
+                queries.Add($"{queryRoot} implementation issues discussions");
+                queries.Add($"{queryRoot} alternatives community review");
+                break;
+
+            case ProjectArchetype.OperationsAdmin:
+                queries.Add($"{queryRoot} official docs checklist");
+                queries.Add($"{queryRoot} migration export best practices");
+                queries.Add($"{queryRoot} common failure modes");
+                break;
+
+            case ProjectArchetype.LifeEntertainment:
+                queries.Add($"{queryRoot} recommendations guide");
+                queries.Add($"{queryRoot} reviews");
+                break;
+
+            default:
+                queries.Add($"{queryRoot} official docs");
+                queries.Add($"{queryRoot} public review");
+                break;
         }
 
         return queries
@@ -137,27 +152,39 @@ public sealed class ExternalSignalCollectorService
 
     private static List<string> BuildReferenceHints(ProjectMemory project)
     {
-        var lower = string.Join(
-            " ",
-            [
-                project.Name,
-                project.ExpectedDeliverable,
-                project.WorkspaceKindLabel,
-                ..project.Keywords
-            ])
-            .ToLowerInvariant();
-
-        if (ContainsAny(lower, "phd", "application", "sop", "proposal", "school"))
+        return ProjectArchetypes.ParseLabel(project.ArchetypeLabel) switch
         {
-            return ["official school pages", "program FAQs", "application guides", "faculty/lab pages"];
+            ProjectArchetype.ApplicationOps => ["official school pages", "program FAQs", "application guides", "faculty or lab pages"],
+            ProjectArchetype.ResearchEvaluation => ["papers", "benchmarks", "official docs", "community critique"],
+            ProjectArchetype.ProductResearch => ["ergonomics references", "competitive products", "mechanical design references", "hardware reviews"],
+            ProjectArchetype.EngineeringExecution => ["official docs", "issue trackers", "discussion threads", "community reviews"],
+            ProjectArchetype.OperationsAdmin => ["official docs", "checklists", "migration notes", "support references"],
+            ProjectArchetype.LifeEntertainment => ["reviews", "guides", "recommendation lists"],
+            _ => ["official docs", "high-signal public references"]
+        };
+    }
+
+    private static string BuildQueryRoot(ProjectMemory project)
+    {
+        if (ProjectArchetypes.ParseLabel(project.ArchetypeLabel) == ProjectArchetype.ProductResearch
+            && (string.Equals(project.Name, "EEG", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(project.PrimaryWorkspaceLabel, "EEG", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(project.CodexWorkspaceLabel, "EEG", StringComparison.OrdinalIgnoreCase)))
+        {
+            return "sleep EEG pillow";
         }
 
-        if (ContainsAny(lower, "research", "paper", "benchmark", "evaluation"))
+        if (!string.IsNullOrWhiteSpace(project.Name))
         {
-            return ["papers", "benchmarks", "official docs", "community critique"];
+            return project.Name;
         }
 
-        return ["official docs", "issue trackers", "discussion threads", "product/community reviews"];
+        if (!string.IsNullOrWhiteSpace(project.PrimaryWorkspaceLabel))
+        {
+            return project.PrimaryWorkspaceLabel;
+        }
+
+        return string.IsNullOrWhiteSpace(project.CodexWorkspaceLabel) ? "current project" : project.CodexWorkspaceLabel;
     }
 
     private static async Task<List<ProjectExternalReference>> SearchQueryAsync(
@@ -247,44 +274,40 @@ public sealed class ExternalSignalCollectorService
     private static bool IsAuthoritativeReference(ProjectMemory project, ProjectExternalReference reference)
     {
         var host = reference.SourceHost.ToLowerInvariant();
-        var signalText = string.Join(
-                " ",
-                [
-                    project.Name,
-                    project.ExpectedDeliverable,
-                    project.WorkspaceKindLabel,
-                    ..project.Keywords
-                ])
-            .ToLowerInvariant();
 
-        if (ContainsAny(signalText, "phd", "application", "sop", "proposal", "school"))
+        return ProjectArchetypes.ParseLabel(project.ArchetypeLabel) switch
         {
-            return host.EndsWith(".edu", StringComparison.OrdinalIgnoreCase)
-                   || host.Contains("admission")
-                   || host.Contains("graduate")
-                   || host.Contains("university");
-        }
-
-        if (ContainsAny(signalText, "research", "paper", "benchmark", "evaluation"))
-        {
-            return host.Contains("openreview")
-                   || host.Contains("arxiv")
-                   || host.Contains("ieee")
-                   || host.Contains("acm")
-                   || host.Contains("nature")
-                   || host.Contains("springer");
-        }
-
-        return host.Contains("github.com")
-               || host.Contains("docs.")
-               || host.Contains("learn.")
-               || host.Contains("developer.")
-               || host.Contains("official");
-    }
-
-    private static bool ContainsAny(string input, params string[] needles)
-    {
-        return needles.Any(needle => input.Contains(needle, StringComparison.OrdinalIgnoreCase));
+            ProjectArchetype.ApplicationOps => host.EndsWith(".edu", StringComparison.OrdinalIgnoreCase)
+                                               || host.Contains("admission")
+                                               || host.Contains("graduate")
+                                               || host.Contains("university"),
+            ProjectArchetype.ResearchEvaluation => host.Contains("openreview")
+                                                   || host.Contains("arxiv")
+                                                   || host.Contains("ieee")
+                                                   || host.Contains("acm")
+                                                   || host.Contains("nature")
+                                                   || host.Contains("springer"),
+            ProjectArchetype.ProductResearch => host.Contains("review")
+                                                || host.Contains("design")
+                                                || host.Contains("ergonomic")
+                                                || host.Contains("hardware")
+                                                || host.Contains("sleep")
+                                                || host.Contains("medical"),
+            ProjectArchetype.OperationsAdmin => host.Contains("docs.")
+                                                || host.Contains("support")
+                                                || host.Contains("learn.")
+                                                || host.Contains("microsoft")
+                                                || host.Contains("github.com"),
+            ProjectArchetype.LifeEntertainment => host.Contains("review")
+                                                  || host.Contains("guide")
+                                                  || host.Contains("recommend"),
+            ProjectArchetype.EngineeringExecution => host.Contains("github.com")
+                                                     || host.Contains("docs.")
+                                                     || host.Contains("learn.")
+                                                     || host.Contains("developer.")
+                                                     || host.Contains("official"),
+            _ => host.Contains("github.com") || host.EndsWith(".edu", StringComparison.OrdinalIgnoreCase)
+        };
     }
 
     private static HttpClient CreateHttpClient()
